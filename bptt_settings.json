@@ -1,0 +1,13 @@
+{
+  "enabled": true,
+  "percentages": [
+    10,
+    20,
+    70
+  ],
+  "counts": [
+    2,
+    3,
+    2
+  ]
+}
