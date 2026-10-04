@@ -50,8 +50,8 @@ krawędzie pól ścian, narożniki, granice mapy oraz przejścia między terenam
 ## Odtworzenie
 
 ```powershell
-python -m unittest test_collision_escape -v
-python -m unittest test_collision_escape test_training_dashboard test_live_gui test_validation test_batching -q
+python -m unittest tests.test_collision_escape -v
+python -m unittest tests.test_collision_escape tests.test_training_dashboard tests.test_live_gui tests.test_validation tests.test_batching -q
 ```
 
 Pierwsze polecenie uruchamia 14 testów audytu, drugie 46 testów audytu,

@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 from batching import run_group
 from episode import Action, Episode
-import test_live_gui
+import tests.test_live_gui as test_live_gui
 from train import latest_path, run_validation, train
 from visual_agent import VisualAgent
 

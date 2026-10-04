@@ -7,7 +7,7 @@ from maps import generate_maze
 from world import World
 from player import validate_movement
 
-PLAN_PATH = Path(__file__).resolve().parent / 'levels.json'
+from config.config import PLAN_PATH
 SIZES = (5, 7, 9, 11)
 
 
@@ -73,6 +73,7 @@ def load_plan(path=PLAN_PATH):
 def save_plan(plan, path=PLAN_PATH):
     plan = validate_plan(plan)
     path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix('.tmp')
     temporary.write_text(json.dumps(plan, ensure_ascii=False, indent=2), encoding='utf-8')
     temporary.replace(path)

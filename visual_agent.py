@@ -10,8 +10,8 @@ from tensor_camera import TensorCamera, camera_pose
 from episode import Action
 from player import ROBOT_RADIUS, MOVE_DISTANCE, TURN_DEGREES
 from torch.utils.checkpoint import checkpoint
+from config.config import MODEL_PATH as DEFAULT_MODEL
 
-DEFAULT_MODEL = Path(__file__).resolve().parent / 'models' / 'agent_continuous.pt'
 CAMERA_WIDTH, CAMERA_HEIGHT = 80, 60
 ACTION_COUNT = len(Action)
 START_ACTION = ACTION_COUNT

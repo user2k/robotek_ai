@@ -21,8 +21,8 @@ from sampling_gui import SamplingDialog, load_settings
 from camera import camera_ppm, CAMERA_ANGLE, CAMERA_DEPTH
 from tensor_camera import TensorCamera, camera_pose
 from resources import ResourceMonitor, format_resources
+from config.config import MODEL_PATH
 
-MODEL_PATH = Path(__file__).resolve().parent / "models" / "agent_continuous.pt"
 COLORS = {
     Terrain.WALL: ("#475569", "Ściana"),
     Terrain.GROUND: ("#b8a184", "Ziemia · 1×"),

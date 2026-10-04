@@ -1,6 +1,6 @@
 """Audyt kolizji: kontakt, narożniki, cofanie i niezależna geometria.
 
-Uruchomienie: python -m unittest test_collision_escape -v
+Uruchomienie: python -m unittest tests.test_collision_escape -v
 Losowania mają stałe seedy; nie używają modeli ani plików treningowych.
 """
 import math

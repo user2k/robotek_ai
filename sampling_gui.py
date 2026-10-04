@@ -5,7 +5,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 from sampling import validate_sampling
 
-SETTINGS_PATH = Path(__file__).resolve().parent / 'bptt_settings.json'
+from config.config import SETTINGS_PATH
 
 
 def load_settings():
@@ -66,6 +66,7 @@ class SamplingDialog(tk.Toplevel):
             percentages, counts = self.values()
             validate_sampling(self.batch_size if self.enabled.get() else 1024, percentages, counts)
             settings = dict(enabled=self.enabled.get(), percentages=percentages, counts=counts)
+            SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
             temporary = SETTINGS_PATH.with_suffix('.tmp')
             temporary.write_text(json.dumps(settings, indent=2), encoding='utf-8')
             temporary.replace(SETTINGS_PATH)

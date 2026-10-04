@@ -5,8 +5,52 @@ Python 3.10+, Tkinter, NumPy i PyTorch.
 ```powershell
 python -m pip install -r requirements.txt
 python main.py
-python -m unittest -v
+python -m unittest discover -s tests -t . -v
 ```
+
+## Katalogi i ścieżki
+
+Konfiguracja: `config/levels.json` i `config/bptt_settings.json`.
+`config/config.py` wyznacza ścieżki względem projektu, niezależnie od katalogu
+uruchomienia. GUI i trening używają `models/<branch>/` dla modelu, `.latest.pt`,
+walidacji, checkpointów i historii sesji. Nowa gałąź bez modelu zaczyna nową
+sieć; nie wczytuje modelu innej gałęzi. Konsolowe `--model` nadpisuje ten wybór.
+Nazwy z `/` są kodowane, np. `feature/plain` → `models/feature%2Fplain/`.
+Detached HEAD używa `models/detached-<commit>/`. Po zmianie brancha uruchom
+aplikację ponownie; działająca sesja zachowuje katalog wybrany przy starcie.
+
+Testy uruchamiaj z katalogu projektu jako pakiet `tests`, np.
+`python -m unittest tests.test_paths -v`.
+
+### Zmiany po przeniesieniu katalogów — 4 października 2026
+
+- Przeniesione konfiguracje są czytane i zapisywane w `config/`; projektant
+  poziomów i okno ustawień BPTT korzystają z nowych ścieżek.
+- GUI i trening mają jedną wspólną ścieżkę modelu z `config/config.py`.
+  Model, zapis najnowszy, checkpointy, wyniki walidacji i historie sesji
+  pozostają w katalogu konkretnej gałęzi `models/<branch>/`.
+- Odczyt gałęzi Git jest wykonywany w katalogu repozytorium, więc uruchomienie
+  programu z innego katalogu nie zmienia wyboru modelu. Jeśli nie można ustalić
+  gałęzi, program zgłasza błąd zamiast wybrać wspólny katalog modeli.
+- Dodano pliki pakietów `config/__init__.py` i `tests/__init__.py`, testy
+  ścieżek w `tests/test_paths.py` oraz poprawiono odwołania w dokumentacji.
+
+Weryfikacja po tych zmianach: 51 testów ścieżek, kolizji, podglądu, walidacji
+i batcha przeszło. Pełny zestaw: 119 testów, 113 poprawnych i 6 znanych błędów
+starszych testów oczekujących wyłączonych kar za kolizje i stanie w miejscu.
+
+Po utworzeniu i przełączeniu nowego brancha zamknij poprzednią sesję aplikacji
+i uruchom ją ponownie. Przed treningiem możesz sprawdzić wybrane ścieżki:
+
+```powershell
+python -c "from config.config import MODEL_VERSION, MODEL_PATH, PLAN_PATH, SETTINGS_PATH; print(MODEL_VERSION); print(MODEL_PATH); print(PLAN_PATH); print(SETTINGS_PATH)"
+python -m unittest tests.test_paths -v
+python main.py
+```
+
+`MODEL_PATH` powinien wskazywać katalog nowej gałęzi. Jeśli nie ma w nim modelu,
+pierwszy trening utworzy nową sieć; zapis w `models/main/` pozostanie osobny.
+Nie kopiuj modelu z poprzedniej gałęzi, jeśli celem jest eksperyment od zera.
 
 ## Trenuj i oglądaj
 
@@ -22,8 +66,8 @@ się kolejno między grupami; kliknięcia podczas oceny dodają następne oceny.
 Co 1000 globalnych grup nadal wykonywana jest automatyczna walidacja na
 100 stałych mapach, bez eksploracji i aktualizacji wag. Każda ukończona ocena
 uzupełnia tabelę i wykres skuteczności Q (ostatnie 40 ocen; pełny log w tabeli).
-Wyniki poszczególnych map trafiają do `models/agent_continuous.validation.csv`,
-a podsumowania do `models/agent_continuous.validation.jsonl`; GUI wczytuje
+Wyniki poszczególnych map trafiają do `models/<branch>/agent_continuous.validation.csv`,
+a podsumowania do `models/<branch>/agent_continuous.validation.jsonl`; GUI wczytuje
 historię po ponownym uruchomieniu. Stop przerywa ocenę i usuwa oczekujące żądania.
 
 **Q oznacza jakość bota: procent map walidacyjnych zakończonych sukcesem**
@@ -43,7 +87,7 @@ w bieżącej grupie; przy nakładających się botach preferowany jest wybrany b
 Przy START kara czeka na pierwszy ruch, aby istniało przejście do uczenia.
 Przebieg ukaranego bota podlega dotychczasowym zasadom doboru do BPTT.
 
-Testy nowych funkcji: `python -m unittest test_training_dashboard test_live_gui test_validation test_batching -q`.
+Testy nowych funkcji: `python -m unittest tests.test_training_dashboard tests.test_live_gui tests.test_validation tests.test_batching -q`.
 
 ## Zatrzymanie eksperymentu — 4 października 2026
 
@@ -63,7 +107,7 @@ nie wystarcza do wykazania ogólnej umiejętności przechodzenia labiryntów.
 Stałe, osobne seedy chronią przed oceną na mapach treningowych, ale nie usuwają
 wspólnego błędu założenia obu zbiorów.
 
-Audyt kolizji opisany w `COLLISION_AUDIT.md` sprawdzał mechanikę ruchu,
+Audyt kolizji opisany w `tests/COLLISION_AUDIT.md` sprawdzał mechanikę ruchu,
 cofania i obrys robota. Jego pozytywny wynik nie wyklucza zapętlenia strategii
 wyuczonej przez sieć ani błędu projektu środowiska treningowego.
 
@@ -83,7 +127,7 @@ kary utrudniały naukę i prowadziły do załamania treningu; ich wyłączenie p
 To decyzja eksperymentalna wynikająca z tych obserwacji, nie dowód konkretnego
 mechanizmu zachodzącego w GRU.
 
-Przy zatrzymaniu eksperymentu `levels.json` zawiera jeden losowy poziom 11×11:
+Przy zatrzymaniu eksperymentu `config/levels.json` zawiera jeden losowy poziom 11×11:
 krok 0,1 m, obrót 15°, limit 300 s i losowy kierunek startowy.
 Próg 9999 wygranych grup z rzędu
 celowo utrzymuje naukę na tym poziomie. Każda grupa dostaje nową mapę;
@@ -91,7 +135,7 @@ dalszy rozwój ma polegać na zwiększaniu szczegółowości ruchu, bez powięks
 Zmiana kroku lub kąta może chwilowo pogorszyć wyniki; porównuj wyniki walidacji
 w obrębie tej samej konfiguracji zapisanej w CSV.
 
-Zapisany dobór BPTT w `bptt_settings.json` to podział rankingu 10/20/70%
+Zapisany dobór BPTT w `config/bptt_settings.json` to podział rankingu 10/20/70%
 i losowanie 2/3/2 pełnych przebiegów. GUI pozwala zmienić te wartości.
 Jedna zakończona grupa oznacza jeden krok optymalizatora, niezależnie od batcha
 i liczby przebiegów wybranych do BPTT. W poprzednim eksperymencie logiczne
@@ -209,7 +253,7 @@ Losowanie jest odtwarzalne, bez powtórzeń. Nie można wybrać więcej robotów
 mieści grupa; komunikat prosi o zmianę batcha lub ustawień. Zero oznacza pominięcie
 grupy w BPTT. Pierwsza grupa to czołówka rankingu, nie gwarancja wygranej.
 
-Ustawienia zapisują się w `bptt_settings.json`; konfiguracja sesji trafia także do
+Ustawienia zapisują się w `config/bptt_settings.json`; konfiguracja sesji trafia także do
 modelu i raportu JSON. CSV przebiegów ma `rank_group` i `selected`, a CSV grup
 `bptt_count`. W trybie domyślnym `rank_group` jest puste. W konsoli:
 `python train.py --batch-size 128 --split 10 20 70 --samples 3 2 3`.
@@ -308,11 +352,11 @@ Działa w tle; Stop go przerywa. Niepełna ocena nie trafia do CSV.
 Po zakończeniu lub błędzie pracy przyciski ponownie stają się aktywne.
 `--evaluate` uruchamia ręcznie tę samą ocenę na 100 mapach 11×11.
 `--width` / `--height` nie zmieniają tego zestawu oceny.
-Wspólny plik `models/agent_continuous.validation.csv` jest dopisywany przy kolejnych
+Plik `models/<branch>/agent_continuous.validation.csv` jest dopisywany przy kolejnych
 ocenach i sesjach. Każda mapa ma osobny wiersz: seed, wynik, wygrana, czas, obrażenia,
 kroki, nagroda i przyczyna zakończenia, licznik grup/aktualizacji/przebiegów,
 krok robota, kąt obrotu, limit czasu, kierunek startowy, checkpoint oraz skuteczność zestawu.
-Checkpointy co 1000 grup są w `models/checkpoints/`, z numerem grupy i identyfikatorem
+Checkpointy co 1000 grup są w `models/<branch>/checkpoints/`, z numerem grupy i identyfikatorem
 sesji w nazwie. Zawierają wagi, optymalizator, plan i postęp oraz konfigurację treningu
 i oceny. Dotychczasowy zapis latest co 10 grup oraz po Stop pozostaje aktywny.
 Nie ma automatycznego wyboru najlepszego modelu; AI i wznowienie używają
@@ -330,9 +374,9 @@ urządzenie sieci. Kamera wejściowa działa na urządzeniu sieci, symulacja na 
 `--fresh` zaczyna od nowych wag; `--model` wybiera osobny plik.
 
 Model **v6** zapisuje geometrię, kamerę i listę czterech akcji.
-Trening zapisuje **models/agent_continuous.latest.pt** (najnowszy).
-**models/agent_continuous.pt** jest opcjonalnym wcześniejszym zapisem bazowym. Raport JSON obok modelu,
-historie CSV i raporty sesji w `models/runs/`. Główny CSV zawiera wybranego
+Trening zapisuje **models/<branch>/agent_continuous.latest.pt** (najnowszy).
+**models/<branch>/agent_continuous.pt** jest opcjonalnym wcześniejszym zapisem bazowym. Raport JSON obok modelu,
+historie CSV i raporty sesji w `models/<branch>/runs/`. Główny CSV zawiera wybranego
 robota każdej grupy; plik `.rollouts.csv` zawiera wszystkie przebiegi, seedy
 i oznaczenie wybranego robota.
 Dawne wytrenowane pliki są zachowane, ale nie są automatycznie wczytywane:
@@ -352,15 +396,15 @@ Przycisk **Projektant poziomów** otwiera edytor planu treningowego. Początkowy
 
 Dla mapy własnej wybierz teren z palety i maluj kliknięciem lub przeciągnięciem. START i END przenoszą się na wskazane pole. Zmiana rozmiaru czyści rysunek po potwierdzeniu. Zapis wymaga dokładnie jednego START i END oraz połączenia między nimi bez ścian; nie gwarantuje przeżycia na wodzie lub ogniu.
 
-**Zapisz plan** zapisuje wszystkie poziomy w `levels.json`. Następne uruchomienie „Trenuj dalej” lub „Trenuj i oglądaj” korzysta z tego planu. Zmiany zapisane podczas treningu dotyczą dopiero następnego uruchomienia.
+**Zapisz plan** zapisuje wszystkie poziomy w `config/levels.json`. Następne uruchomienie „Trenuj dalej” lub „Trenuj i oglądaj” korzysta z tego planu. Zmiany zapisane podczas treningu dotyczą dopiero następnego uruchomienia.
 
 Roboty trenują poziomy w kolejności. Mapa własna jest powtarzana, a losowa powstaje od nowa dla każdej grupy. Tak jak wcześniej, wynik najlepszego robota w grupie stanowi jedno zaliczenie. Próg 20 oznacza 20 wygranych grup z rzędu; porażka przerywa serię. Po awansie licznik kolejnego poziomu zaczyna się od zera. Po ukończeniu ostatniego poziomu trening kończy się i zapisuje model.
 
-Plan i postęp są również częścią zapisu modelu. Wznowienie tego samego planu zachowuje poziom i wyniki. Zmiana planu rozpoczyna poziom 1, zachowując wyuczone wagi sieci. W konsoli plan można podać przez `python train.py --plan levels.json`; bez tej opcji pozostaje wcześniejszy automatyczny dobór rozmiaru.
+Plan i postęp są również częścią zapisu modelu. Wznowienie tego samego planu zachowuje poziom i wyniki. Zmiana planu rozpoczyna poziom 1, zachowując wyuczone wagi sieci. W konsoli plan można podać przez `python train.py --plan config/levels.json`; bez tej opcji pozostaje wcześniejszy automatyczny dobór rozmiaru.
 
 Każdy poziom ma także własny **Limit czasu mapy (s)**, od 2 do 1 000 000 sekund czasu symulacji. Limit obowiązuje każdego robota w każdej próbie tego poziomu, niezależnie od tempa podglądu. Generator losowy uwzględnia go przy wyznaczaniu bezpiecznej trasy. Starsze plany otrzymują domyślne 200 s bez utraty postępu; zmiana limitu jest zmianą planu i rozpoczyna go od poziomu 1, zachowując wagi sieci.
 
-Opcja **Start od lvl** przy ustawieniach treningu pozwala wybrać poziom początkowy. **Kontynuuj** zachowuje zapisany postęp. Wybranie numeru rozpoczyna wskazany poziom z zerową serią zaliczeń, zachowując wagi modelu; następnie trening przechodzi do kolejnych poziomów planu. Wybór numeru dotyczy jednego uruchomienia — pole wraca do Kontynuuj, aby kolejne wznowienie nie resetowało postępu. W konsoli: python train.py --plan levels.json --start-level 4.
+Opcja **Start od lvl** przy ustawieniach treningu pozwala wybrać poziom początkowy. **Kontynuuj** zachowuje zapisany postęp. Wybranie numeru rozpoczyna wskazany poziom z zerową serią zaliczeń, zachowując wagi modelu; następnie trening przechodzi do kolejnych poziomów planu. Wybór numeru dotyczy jednego uruchomienia — pole wraca do Kontynuuj, aby kolejne wznowienie nie resetowało postępu. W konsoli: python train.py --plan config/levels.json --start-level 4.
 
 ## Ruch i nazwa osobno dla każdego poziomu
 
