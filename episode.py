@@ -12,17 +12,7 @@ START_HEADINGS = {'right': 0., 'left': 180., 'up': 270., 'down': 90.}
 
 NEW_TILE_REWARD = 0.2
 EXPLORATION_BUDGET = 5.0
-CELL_GRACE_TIME = 3.0
-COLLISION_BASE_COST = 0.5
-COLLISION_REPEAT_COST = 0.25
-COLLISION_MAX_COST = 2.0
-
-
-def residence_cost(time):
-    """Całka stawki: po 3 s wzrost 0.02/s aż do 0.1/s."""
-    excess = max(0., time - CELL_GRACE_TIME)
-    ramp = min(excess, 5.)
-    return 0.01 * ramp * ramp + 0.1 * max(0., excess - 5.)
+COLLISION_COST = 0.01
 
 
 class Action(IntEnum):
@@ -71,7 +61,6 @@ class Episode:
         self.visited = {self.player.cell}
         self.reward_parts = {}
         self.reward_totals = {}
-        self.cell_time = {}
 
     @property
     def done(self):
@@ -108,7 +97,6 @@ class Episode:
         action = Action(action)
         p = self.player
         old_time, old_damage = p.elapsed_time, p.damage
-        old_cell = p.cell
         moving = action in (Action.FORWARD, Action.BACKWARD)
         if moving:
             x, y, blocked, parts, duration = p.movement_plan(action is Action.BACKWARD)
@@ -142,14 +130,6 @@ class Episode:
         elif moved:
             self.collision_streak = 0
         # Obrót pozwala szukać wyjścia, ale nie kasuje kolejnych uderzeń.
-        collision_cost = (min(COLLISION_MAX_COST, COLLISION_BASE_COST +
-                              COLLISION_REPEAT_COST * (self.collision_streak - 1))
-                          if collision else 0.)
-        elapsed = p.elapsed_time - old_time
-        # Czas akcji przypisujemy polu, w którym akcja się rozpoczęła.
-        previous_time = self.cell_time.get(old_cell, 0.)
-        self.cell_time[old_cell] = previous_time + elapsed
-        staying = residence_cost(previous_time + elapsed) - residence_cost(previous_time)
         exploration = min(NEW_TILE_REWARD, max(0., EXPLORATION_BUDGET - self.reward_totals.get('new_tile', 0.))) if new_tile else 0.
         self.reward_parts = {
             'time': -0.005 * (p.elapsed_time - old_time),
@@ -158,8 +138,7 @@ class Episode:
             'death': -3. if not p.alive else 0.,
             'timeout': -1.5 if self.timed_out else 0.,
             'new_tile': exploration,
-            #'staying': -staying,
-            #'collision': -collision_cost,
+            'collision': -COLLISION_COST if collision else 0.,
         }
         for name, value in self.reward_parts.items():
             self.reward_totals[name] = self.reward_totals.get(name, 0.) + value

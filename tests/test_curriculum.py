@@ -150,7 +150,7 @@ class CurriculumTests(unittest.TestCase):
         state = prepare_curriculum(None, plan)
         with patch('curriculum.generate_maze', wraps=generate_maze) as generate:
             rows = level_rows(state, 10)
-            generate.assert_called_once_with(5, 5, 10, max_time=2)
+            generate.assert_called_once_with(5, 5, 10, max_time=2, pola='SE#.')
         episode = Episode(rows, max_time=2)
         while not episode.done:
             episode.step(Action.LEFT)

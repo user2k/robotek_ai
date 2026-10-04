@@ -34,7 +34,7 @@ class ValidationTests(unittest.TestCase):
             self.assertEqual(rows[0]['turn_degrees'], '90.0')
             self.assertEqual(rows[0]['epsilon'], '0.0')
             self.assertEqual([r['map_seed'] for r in rows[:100]], [r['map_seed'] for r in rows[100:]])
-            generator.assert_called_with(11, 11, VALIDATION_SEEDS[-1], max_time=.05)
+            generator.assert_called_with(11, 11, VALIDATION_SEEDS[-1], max_time=.05, pola='SE#.')
         self.assertTrue(agent.network.training)
         self.assertIs(agent.hidden, hidden)
         self.assertEqual(agent.previous_action, 2)

@@ -3,7 +3,7 @@ from copy import deepcopy
 from math import isfinite
 import tkinter as tk
 from tkinter import messagebox, ttk
-from curriculum import SIZES, blank_map, save_plan, validate_plan
+from curriculum import SIZES, blank_map, save_plan, validate_plan, validate_fields, DEFAULT_FIELDS
 from world import Terrain
 from player import validate_movement
 
@@ -18,6 +18,7 @@ class MapDesigner(tk.Toplevel):
         self.plan, self.colors, self.on_save = deepcopy(plan), colors, on_save
         self.on_preview = on_preview
         self.index = 0
+        self.pola = tk.StringVar(value=DEFAULT_FIELDS)
         self.brush = tk.StringVar(value='.')
         self.mode = tk.StringVar()
         self.size = tk.StringVar()
@@ -50,6 +51,8 @@ class MapDesigner(tk.Toplevel):
         menu = ttk.Combobox(controls, textvariable=self.size, values=SIZES, state='readonly', width=6)
         menu.grid(row=1, column=1)
         menu.bind('<<ComboboxSelected>>', self.resize_map)
+        ttk.Label(controls, text='Pola losowe · wymagane S E #').grid(row=1, column=2)
+        ttk.Entry(controls, textvariable=self.pola, width=20).grid(row=1, column=3)
         ttk.Label(controls, text='Zaliczenia z rzędu:').grid(row=2, column=0)
         ttk.Spinbox(controls, from_=1, to=1000000, textvariable=self.required, width=9).grid(row=2, column=1)
         ttk.Label(controls, text='Limit czasu mapy (s):').grid(row=3, column=0)
@@ -67,7 +70,7 @@ class MapDesigner(tk.Toplevel):
         palette = ttk.Frame(right)
         palette.pack(pady=8)
         for i, (terrain, (color, label)) in enumerate(colors.items()):
-            tk.Radiobutton(palette, text=label, variable=self.brush, value=terrain.value,
+            tk.Radiobutton(palette, text=f"{label} [{terrain.value}]", variable=self.brush, value=terrain.value,
                            indicatoron=False, bg=color, selectcolor=color, width=18).grid(row=i//4, column=i%4)
         self.canvas = tk.Canvas(right, width=440, height=440, highlightthickness=0)
         self.canvas.pack()
@@ -114,9 +117,14 @@ class MapDesigner(tk.Toplevel):
         except ValueError as error:
             messagebox.showerror('Ustawienia poziomu', str(error), parent=self)
             return False
+        try:
+            fields = validate_fields(self.pola.get())
+        except ValueError as error:
+            messagebox.showerror('Pola dostępne', str(error), parent=self)
+            return False
         self.plan[self.index].update(mode=self.mode.get(), required=required, max_time=max_time,
                                      name=name, move_distance=distance, turn_degrees=angle,
-                                     start_direction=DIRECTIONS[self.start_direction.get()])
+                                     start_direction=DIRECTIONS[self.start_direction.get()], pola=fields)
         return True
 
     def load(self):
@@ -129,6 +137,7 @@ class MapDesigner(tk.Toplevel):
         self.move_distance.set(f"{level.get('move_distance', .1):g}")
         self.turn_degrees.set(f"{level.get('turn_degrees', 10):g}")
         self.start_direction.set(next(label for label, value in DIRECTIONS.items() if value == level.get('start_direction', 'right')))
+        self.pola.set(level.get('pola', DEFAULT_FIELDS))
         self.refresh()
         self.draw()
 
@@ -186,7 +195,7 @@ class MapDesigner(tk.Toplevel):
 
     def add(self):
         if self.commit():
-            self.plan.append(dict(name=f'Poziom {len(self.plan)+1}', start_direction='right', move_distance=.1, turn_degrees=10., mode='random', size=5, required=20, max_time=200.0, rows=blank_map(5)))
+            self.plan.append(dict(name=f'Poziom {len(self.plan)+1}', start_direction='right', move_distance=.1, turn_degrees=10., mode='random', size=5, required=20, max_time=200.0, pola=DEFAULT_FIELDS, rows=blank_map(5)))
             self.index = len(self.plan)-1
             self.load()
 

@@ -21,7 +21,7 @@ from sampling_gui import SamplingDialog, load_settings
 from camera import camera_ppm, CAMERA_ANGLE, CAMERA_DEPTH
 from tensor_camera import TensorCamera, camera_pose
 from resources import ResourceMonitor, format_resources
-from config.config import MODEL_PATH
+from config.config import MODEL_PATH, MODEL_VERSION
 
 COLORS = {
     Terrain.WALL: ("#475569", "Ściana"),
@@ -65,7 +65,7 @@ class GameApp:
         root.title("Roboty — trening, podgląd 3D i walidacje")
         root.configure(bg="#101827")
         root.resizable(False, False)
-        tk.Label(root, text="ŚWIAT 2D", font=("Segoe UI", 22, "bold"),
+        tk.Label(root, text=f"ŚWIAT 2D branch: {MODEL_VERSION}", font=("Segoe UI", 22, "bold"),
                  bg="#101827", fg="white").pack(pady=(16, 2))
         tk.Label(root, text="W / ↑: przód    S / ↓: tył    A / D: obrót    R: restart",
                  font=("Segoe UI", 11), bg="#101827", fg="#cbd5e1").pack(pady=(0, 12))
@@ -848,7 +848,6 @@ class GameApp:
         self.status.configure(text=f"Czas: {p.elapsed_time:.2f}/{self.episode.max_time:g} | Obrażenia: {p.damage:.1f} | "
                               f"Wynik: {self.episode.score:.1f} | {hazard}\n"
                               f"Nagrody: {self.episode.total_reward:+.2f} | Eksploracja: {self.episode.reward_totals.get('new_tile', 0):+.2f} | "
-                              f"Przebywanie w polach: {self.episode.reward_totals.get('staying', 0):+.2f} | "
                               f"Kary za kolizje: {self.episode.reward_totals.get('collision', 0):+.2f}\n{self.message}\n"
                               f"Pozycja: ({p.x:.2f}, {p.y:.2f}) m | Kierunek: {p.heading:g}° | "
                               f"Odwiedzone pola: {len(self.episode.visited)} | Kolizje: {self.episode.collisions}")

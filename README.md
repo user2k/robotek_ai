@@ -1,4 +1,7 @@
-# Robot 20 cm — ciągły ruch i kamera 3D
+# robotek-2 — robot 20 cm, ciągły ruch i kamera 3D
+
+**robotek-2** to wariant z wyborem terenów generatora, modelami osobnymi dla
+gałęzi Git i małą, stałą karą za kolizje −0,01. Nie ma kary za stanie w miejscu.
 
 Python 3.10+, Tkinter, NumPy i PyTorch.
 
@@ -35,9 +38,9 @@ Testy uruchamiaj z katalogu projektu jako pakiet `tests`, np.
 - Dodano pliki pakietów `config/__init__.py` i `tests/__init__.py`, testy
   ścieżek w `tests/test_paths.py` oraz poprawiono odwołania w dokumentacji.
 
-Weryfikacja po tych zmianach: 51 testów ścieżek, kolizji, podglądu, walidacji
-i batcha przeszło. Pełny zestaw: 119 testów, 113 poprawnych i 6 znanych błędów
-starszych testów oczekujących wyłączonych kar za kolizje i stanie w miejscu.
+Weryfikacja po przeniesieniu ścieżek: 51 testów ścieżek, kolizji, podglądu,
+walidacji i batcha przeszło. Po kolejnych zmianach generatora i uporządkowaniu
+kar pełny zestaw zawiera **125 testów — wszystkie przechodzą**.
 
 Po utworzeniu i przełączeniu nowego brancha zamknij poprzednią sesję aplikacji
 i uruchom ją ponownie. Przed treningiem możesz sprawdzić wybrane ścieżki:
@@ -53,6 +56,39 @@ pierwszy trening utworzy nową sieć; zapis w `models/main/` pozostanie osobny.
 Nie kopiuj modelu z poprzedniej gałęzi, jeśli celem jest eksperyment od zera.
 
 ## Trenuj i oglądaj
+
+### Pola dostępne dla losowych map
+
+W projektancie pole `pola` wybiera tereny generatora. Wymagane są `S`, `E`
+i `#` (ściana). Domyślne `SE#.` oznacza START, END, ściany i zwykłe podłoże.
+Przykłady: `SE#.P` dodaje bruk, `SE#.PBWF` dopuszcza wszystkie tereny.
+Samo `SE#` również używa zwykłego podłoża jako wypełnienia korytarzy.
+Jeśli podasz tereny podłoża, losowane są tylko te wymienione w polu.
+
+Wybrana paleta działa w podglądzie poziomu, treningu i walidacji, a zapis
+modelu oraz podsumowanie walidacji zachowują `pola`. Generator buduje połączony
+labirynt, po czym losuje tereny jednakowo na całej mapie — **nie chroni trasy
+do END przed zagrożeniami**. Wagi dla wybranych terenów: ziemia 55, bruk 15,
+bagno 15, woda 8, ogień 7; wagi są przeliczane względem dostępnej palety.
+**Zawsze istnieje co najmniej jedno połączenie S → E przez pola inne niż
+ściany.** Generator DFS łączy komórki korytarzami, a END wybiera spośród pól
+osiągalnych od START. Losowanie terenów zmienia rodzaj podłoża, ale nie
+zamienia istniejących korytarzy w ściany. Korytarze mają szerokość co najmniej
+jednego pola (1 m), więc robot o średnicy 20 cm mieści się na trasie po ich
+środkach.
+
+Ta gwarancja dotyczy geometrii losowej mapy. Przy wybranych zagrożeniach
+nie gwarantuje przeżycia ani ukończenia w limicie czasu, a wyuczona polityka
+może nie znaleźć trasy. Szczególnie duży krok lub ograniczony obrót również
+mogą utrudniać wykonanie geometrycznie istniejącej trasy. Dla map ręcznych
+walidacja planu sprawdza połączenie S → E przez pola przechodnie.
+
+Dawne bezpośrednie wywołanie `generate_maze()` bez argumentu `pola` zachowuje
+stary generator dla zgodności; trening i walidacja przekazują paletę jawnie.
+W istniejących konfiguracjach jawne `SE` należy zmienić na `SE#.`.
+Plan bez klucza `pola` dostaje nową domyślną wartość.
+
+Testy: `python -m unittest tests.test_generator_fields tests.test_map_fields -v`.
 
 Przycisk **Trenuj i oglądaj** pokazuje cały batch robotów na wspólnej mapie.
 Kolory rozróżniają boty; biały obrys i numer oznaczają wybranego robota.
@@ -114,18 +150,22 @@ wyuczonej przez sieć ani błędu projektu środowiska treningowego.
 **Plan kolejnego eksperymentu na nowym branchu:** generator map bez
 zagrożeń i specjalnych terenów, z polami START, END i zwykłym podłożem.
 Pierwszym celem będzie sprawdzenie nauki nawigacji bez wskazówki wynikającej
-z rozmieszczenia zagrożeń. Zmiana generatora pozostaje do wykonania na tym
-branchu; poniższy opis dotyczy dotychczasowego wariantu.
+z rozmieszczenia zagrożeń. Wprowadzono wybór palety opisany w sekcji
+„Pola dostępne dla losowych map”; poniższy opis dotyczy wcześniejszego eksperymentu.
 
 ## Dotychczasowy wariant treningu
 
-Kary za kolizje oraz za przebywanie w jednym polu są **celowo wyłączone**.
-Fizyczna blokada ruchu przy kolizji nadal działa, a nieudany krok zużywa czas.
-Pozostają koszt czasu, kary za obrażenia, śmierć i limit czasu oraz premie za END
-i eksplorację. Według obserwacji z dotychczasowych sesji wcześniejsze, agresywne
-kary utrudniały naukę i prowadziły do załamania treningu; ich wyłączenie pomogło.
-To decyzja eksperymentalna wynikająca z tych obserwacji, nie dowód konkretnego
-mechanizmu zachodzącego w GRU.
+Obecnie każda wykonana próba ruchu zablokowana przez ścianę lub granicę mapy
+daje małą, stałą karę **−0,01** (`COLLISION_COST` w `episode.py`). Kara nie rośnie
+z serią kolizji. Obrót i udany ruch, także cofanie, nie dostają tej kary.
+Akcja niewykonana z powodu przekroczenia limitu czasu nie nalicza kolizji.
+Koszt czasu nalicza się osobno. Kara wpływa na nagrodę do uczenia, a punktowy
+wynik oceny zachowuje dotychczasową formułę.
+
+Kary za przebywanie w miejscu usunięto wraz z ich nieużywanymi obliczeniami
+i testami. Nie ma dawnej narastającej kary za kolizje. W poprzednim eksperymencie
+agresywne kary według obserwacji utrudniały naukę; obecne −0,01 jest świadomie
+małym sygnałem odróżniającym uderzenie w ścianę od poprawnego ruchu.
 
 Przy zatrzymaniu eksperymentu `config/levels.json` zawiera jeden losowy poziom 11×11:
 krok 0,1 m, obrót 15°, limit 300 s i losowy kierunek startowy.
@@ -141,9 +181,9 @@ Jedna zakończona grupa oznacza jeden krok optymalizatora, niezależnie od batch
 i liczby przebiegów wybranych do BPTT. W poprzednim eksperymencie logiczne
 zachowanie GRU zaobserwowano około 16 tys. aktualizacji; nie jest to gwarantowany próg.
 
-Pełny zestaw testów zawiera jeszcze 6 testów oczekujących dawnych aktywnych kar
-`collision` i `staying`. Ich błędy wynikają z nieaktualnych oczekiwań wobec
-obecnego wariantu treningu. Testy kamery porównują obrazy w pamięci i nie zapisują PNG.
+Testy kolizji sprawdzają stałą karę, jej sumowanie, cofanie, obrót i brak kary
+za niewykonaną akcję po limicie czasu. Dawne oczekiwania usuniętych kar zostały
+uporządkowane. Testy kamery porównują obrazy w pamięci i nie zapisują PNG.
 
 ## Przestrzeń i sterowanie
 
@@ -162,7 +202,7 @@ Kąt 0° oznacza prawo, 90° dół; startowy kąt wynosi 0°.
 Po obrocie ruch odbywa się po rzeczywistym kierunku, bez przyciągania do siatki.
 Kolizja obejmuje całą tarczę i całą drogę jej środka, również przy narożnikach.
 Dotknięcie styczne jest dozwolone; nakładanie na ścianę lub wyjście poza mapę
-blokuje cały krok i nalicza jego czas, bez dodatkowej kary za kolizję.
+blokuje cały krok, nalicza jego czas oraz stałą karę −0,01 za kolizję.
 Kolizje i ich serie są nadal liczone; udany ruch (także cofnięcie) zeruje serię,
 a obrót jej nie zeruje. Robot nie ślizga się po ścianie.
 Obrót koła nie zmienia obrysu i nie powoduje kolizji.
@@ -197,17 +237,14 @@ Wygrana wymaga przeżycia ruchu. Obrót nie zwiększa tych liczników.
 
 Nagroda jest sumą: +10 za END, −3 za śmierć, −1.5 za limit czasu,
 −0.005 za jednostkę czasu, −0.02 za punkt obrażeń,
-+0.2 za pierwsze wejście środka na nowe pole 1×1 m (maksymalnie +5 na próbę).
-**Nie ma dodatkowej kary za kolizję ani za przebywanie w polu.**
-Kod zachowuje obliczenia dawnych kar i licznik czasu w polach, ale składniki
-`collision` i `staying` nie są dodawane do nagrody. Krótkie wyjście i powrót
-nie zerują licznika czasu; nowa próba go zeruje. Czas akcji przypisujemy polu,
-z którego rozpoczęto akcję.
++0.2 za pierwsze wejście środka na nowe pole 1×1 m (maksymalnie +5 na próbę),
+**−0.01 za kolizję**, a przy użyciu łapki −20 i zakończenie przebiegu.
+Nie ma dodatkowej kary za przebywanie w polu ani powrót do niego.
 Premia nie jest wypłacana za każdy krok 10 cm. Nie ma nagrody za odległość
 od END ani premii za odkrywanie starego FOV.
 
 GUI pokazuje osobno sumę nagród treningowych i premię eksploracji.
-Pola kar za kolizje i przebywanie pokazują zero, ponieważ te składniki są wyłączone.
+GUI pokazuje również skumulowaną karę za kolizje.
 Punktowy wynik oceny jest liczony osobno od nagrody treningowej.
 
 Wynik oceny: `1000*wygrana − czas − 2*obrażenia − 250*śmierć − 100*limit`.

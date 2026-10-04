@@ -18,7 +18,7 @@ from sampling import validate_sampling, sample_ranked
 from visual_agent import DEFAULT_MODEL, VisualAgent, MOVEMENT
 from camera import CAMERA_ANGLE, CAMERA_DEPTH
 from episode import Episode
-from maps import generate_maze
+from maps import generate_maze, DEFAULT_FIELDS, validate_fields
 from curriculum import prepare_curriculum, level_rows, advance_level, load_plan, record_streak, level_options
 
 VALIDATION_SEEDS = tuple(-2000001 - 2 * i for i in range(100))
@@ -66,12 +66,12 @@ def evaluate(agent, rows=None, stop=None, episode_options=None):
     return episode.metrics()
 
 
-def evaluate_suite(agent, seeds=VALIDATION_SEEDS, width=11, height=11, stop=None, episode_options=None):
+def evaluate_suite(agent, seeds=VALIDATION_SEEDS, width=11, height=11, stop=None, episode_options=None, pola=DEFAULT_FIELDS):
     seeds = tuple(seeds)
     if not seeds:
         raise ValueError("Zestaw oceny nie może być pusty")
     results = [{"map_seed": seed, **evaluate(agent, generate_maze(width, height, seed,
-               max_time=(episode_options or {}).get('max_time', 200.)), stop=stop,
+               max_time=(episode_options or {}).get('max_time', 200.), pola=pola), stop=stop,
                episode_options=dict(episode_options or {}, start_seed=seed))}
                for seed in seeds]
     return {"maps": len(results), "wins": sum(r["won"] for r in results),
@@ -88,21 +88,26 @@ def validation_options(agent):
 
 
 def run_validation(agent, model_path=DEFAULT_MODEL, stop=None, episode_options=None,
-                   checkpoint_path='', session='', on_status=None, validation_kind='manual'):
+                   checkpoint_path='', session='', on_status=None, validation_kind='manual', pola=None):
     """Stały osobny zestaw map, jeden robot, bez uczenia i eksploracji."""
-    options = episode_options or validation_options(agent)
+    options = episode_options or agent.training_config.get('episode_options') or validation_options(agent)
+    if pola is None:
+        state = agent.curriculum or {}
+        pola = (agent.training_config.get('pola') or
+                (state['plan'][state['level']].get('pola', DEFAULT_FIELDS) if 'plan' in state else DEFAULT_FIELDS))
+    pola = validate_fields(pola)
     mode, hidden, previous = agent.network.training, agent.hidden, agent.previous_action
     rng = agent.random.getstate()
     agent.network.eval()
     try:
         with torch.inference_mode():
-            result = evaluate_suite(agent, stop=stop, episode_options=options)
+            result = evaluate_suite(agent, stop=stop, episode_options=options, pola=pola)
     finally:
         agent.network.train(mode)
         agent.hidden, agent.previous_action = hidden, previous
         agent.random.setstate(rng)
     result.update(episodes=agent.episodes, kind=validation_kind,
-                  timestamp=datetime.now().isoformat(timespec='seconds'))
+                  timestamp=datetime.now().isoformat(timespec='seconds'), pola=pola)
     path = Path(model_path).with_name(Path(model_path).stem + '.validation.csv')
     path.parent.mkdir(parents=True, exist_ok=True)
     fields = ['timestamp', 'session', 'episodes', 'updates', 'rollouts', 'checkpoint',
@@ -140,7 +145,7 @@ def train(episodes=300, seed=7, model_path=DEFAULT_MODEL, progress=None, stop=No
     if selection is not None:
         selection = {'percentages': list(selection['percentages']), 'counts': list(selection['counts'])}
         validate_sampling(batch_size, selection['percentages'], selection['counts'])
-    generate_maze(width, height, seed)
+    generate_maze(width, height, seed, pola=DEFAULT_FIELDS)
     model_path = Path(model_path)
     latest = latest_path(model_path)
     source = latest if resume and latest.exists() else model_path
@@ -178,7 +183,9 @@ def train(episodes=300, seed=7, model_path=DEFAULT_MODEL, progress=None, stop=No
             except Empty:
                 return
             result = run_validation(agent, model_path, stop=stop, episode_options=options,
-                                    session=session, on_status=on_status)
+                                    session=session, on_status=on_status,
+                                    pola=(agent.curriculum['plan'][agent.curriculum['level']].get('pola', DEFAULT_FIELDS)
+                                          if 'plan' in agent.curriculum else DEFAULT_FIELDS))
             if on_validation:
                 on_validation(result)
     run_dir = model_path.parent / "runs"
@@ -206,8 +213,11 @@ def train(episodes=300, seed=7, model_path=DEFAULT_MODEL, progress=None, stop=No
             map_seed = training_seed(seed, episode_number)
             map_width, map_height = agent.curriculum['width'], agent.curriculum['height']
             stage = agent.curriculum.get('level', 0) + 1
+            pola = (agent.curriculum['plan'][stage - 1].get('pola', DEFAULT_FIELDS)
+                    if 'plan' in agent.curriculum else DEFAULT_FIELDS)
+            agent.training_config['pola'] = pola
             rows = (level_rows(agent.curriculum, map_seed) if 'plan' in agent.curriculum
-                    else generate_maze(map_width, map_height, map_seed))
+                    else generate_maze(map_width, map_height, map_seed, pola=pola))
             episode_options = (level_options(agent.curriculum['plan'][stage - 1])
                                if 'plan' in agent.curriculum else {})
             agent.training_config['episode_options'] = deepcopy(episode_options or validation_options(agent))
@@ -286,7 +296,7 @@ def train(episodes=300, seed=7, model_path=DEFAULT_MODEL, progress=None, stop=No
                     on_status(f"Walidacja · 100 map 11×11 · po {episode_number} grupach · jeden robot · epsilon 0")
                 try:
                     result = run_validation(agent, model_path, stop, episode_options or validation_options(agent),
-                                   checkpoint_path=snapshot, session=session, on_status=on_status, validation_kind='periodic')
+                                   checkpoint_path=snapshot, session=session, on_status=on_status, validation_kind='periodic', pola=pola)
                     if on_validation:
                         on_validation(result)
                 except InterruptedError:

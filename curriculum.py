@@ -3,7 +3,7 @@ from copy import deepcopy
 import json
 from math import isfinite
 from pathlib import Path
-from maps import generate_maze
+from maps import generate_maze, validate_fields, DEFAULT_FIELDS
 from world import World
 from player import validate_movement
 
@@ -18,7 +18,7 @@ def blank_map(size):
 
 
 def default_plan():
-    return [dict(name=f'Poziom {i + 1}', start_direction='right', move_distance=.1, turn_degrees=10., mode='random', size=SIZES[min(i // 3, 3)], required=20, max_time=200.0,
+    return [dict(name=f'Poziom {i + 1}', start_direction='right', move_distance=.1, turn_degrees=10., mode='random', size=SIZES[min(i // 3, 3)], required=20, max_time=200.0, pola=DEFAULT_FIELDS,
                  rows=blank_map(SIZES[min(i // 3, 3)])) for i in range(10)]
 
 
@@ -28,6 +28,13 @@ def validate_plan(plan):
     plan = deepcopy(plan)
     for i, level in enumerate(plan, 1):
         level.setdefault('name', f'Poziom {i}')
+
+
+        try:
+            level['pola'] = validate_fields(level.get('pola', DEFAULT_FIELDS))
+        except ValueError as error:
+            raise ValueError(f'Poziom {i}: {error}') from error
+
         if not isinstance(level['name'], str) or not 1 <= len(level['name'].strip()) <= 120:
             raise ValueError(f'Poziom {i}: nazwa/opis musi mieć 1–120 znaków.')
         level['name'] = level['name'].strip()
@@ -83,7 +90,13 @@ def prepare_curriculum(previous, plan, start_level=None):
     plan = validate_plan(plan)
     if start_level is not None and (type(start_level) is not int or not 1 <= start_level <= len(plan)):
         raise ValueError(f'Poziom startowy musi wynosić od 1 do {len(plan)}.')
-    if (start_level is None and previous and previous.get('plan') and [{k: v for k, v in level.items() if k != 'name'} for level in validate_plan(previous['plan'])] ==
+    previous_plan = None
+    if previous and previous.get('plan'):
+        try:
+            previous_plan = validate_plan(previous['plan'])
+        except ValueError:
+            pass  # Stary plan bez wymaganej ściany: zacznij nowy plan.
+    if (start_level is None and previous_plan and [{k: v for k, v in level.items() if k != 'name'} for level in previous_plan] ==
             [{k: v for k, v in level.items() if k != 'name'} for level in plan]):
         previous['plan'] = plan
         trim_streak(previous['wins'])
@@ -100,7 +113,8 @@ def level_options(level):
 
 def level_rows(state, seed):
     level = state['plan'][state['level']]
-    return (generate_maze(level['size'], level['size'], seed, max_time=level.get('max_time', 200.0))
+    return (generate_maze(level['size'], level['size'], seed, max_time=level.get('max_time', 200.0),
+                          pola=level.get('pola', DEFAULT_FIELDS))
             if level['mode'] == 'random' else list(level['rows']))
 
 

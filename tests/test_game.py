@@ -50,34 +50,6 @@ class MovementTests(unittest.TestCase):
         self.assertAlmostEqual(e.total_reward, .2 - .005 * .5)
         self.assertAlmostEqual(sum(e.reward_totals.values()), e.total_reward)
 
-    def test_staying_penalty_has_grace_and_grows_even_while_moving(self):
-        e = Episode(['S..E'])
-        for i in range(30):
-            e.step(Action.FORWARD if i % 2 == 0 else Action.BACKWARD)
-        self.assertAlmostEqual(e.reward_totals['staying'], 0)
-        first = e.step(Action.FORWARD)
-        penalty = e.reward_parts['staying']
-        self.assertLess(penalty, 0)
-        e.step(Action.BACKWARD)
-        self.assertLess(e.reward_parts['staying'], penalty)
-        self.assertEqual(e.reward_totals['new_tile'], 0)
-
-    def test_rotations_penalized_and_return_does_not_reset_cell_time(self):
-        e = Episode(['S..E'])
-        for _ in range(72):
-            e.step(Action.RIGHT)
-        self.assertLess(e.reward_parts['staying'], 0)
-        for _ in range(5):
-            e.step(Action.FORWARD)
-        old = e.cell_time[(0, 0)]
-        e.step(Action.BACKWARD)
-        e.step(Action.FORWARD)
-        self.assertGreater(e.cell_time[(0, 0)], old)
-        self.assertLess(e.reward_parts['staying'], 0)
-        e.reset()
-        self.assertEqual(e.cell_time, {})
-        self.assertEqual(e.reward_totals, {})
-
     def test_exploration_budget_is_bounded_below_goal_bonus(self):
         e = Episode(['S' + '.' * 30 + 'E'])
         for _ in range(300):
@@ -122,31 +94,32 @@ class MovementTests(unittest.TestCase):
         result = e.step(Action.FORWARD)
         self.assertFalse(result.moved)
         self.assertAlmostEqual(e.player.x, .9)
-        self.assertEqual(e.reward_parts['collision'], -.5)
+        self.assertEqual(e.reward_parts['collision'], -.01)
+        self.assertAlmostEqual(result.reward, -.01-.005*result.duration)
         self.assertEqual(e.collisions, 1)
         self.assertAlmostEqual(result.duration, .1)
         self.assertTrue(e.step(Action.BACKWARD).moved)
         self.assertEqual(e.reward_parts['collision'], 0)
 
-    def test_repeated_collisions_grow_and_cap_even_with_turns(self):
+    def test_repeated_collisions_have_constant_minimal_cost_even_with_turns(self):
         e = Episode(['S#E'])
         for _ in range(4):
             e.step(Action.FORWARD)
-        for expected in (.5, .75, 1., 1.25, 1.5, 1.75, 2., 2.):
+        for _ in range(8):
             e.step(Action.FORWARD)
-            self.assertEqual(e.reward_parts['collision'], -expected)
+            self.assertEqual(e.reward_parts['collision'], -.01)
             e.step(Action.LEFT)
             self.assertEqual(e.reward_parts['collision'], 0)
             e.step(Action.RIGHT)
         self.assertEqual(e.collision_streak, 8)
-        self.assertAlmostEqual(e.reward_totals['collision'], -10.75)
+        self.assertAlmostEqual(e.reward_totals['collision'], -.08)
         self.assertAlmostEqual(e.total_reward, sum(e.reward_totals.values()))
         self.assertTrue(e.step(Action.BACKWARD).moved)
         self.assertEqual(e.collision_streak, 0)
         self.assertEqual(e.reward_parts['collision'], 0)
         e.step(Action.FORWARD)
         e.step(Action.FORWARD)
-        self.assertEqual(e.reward_parts['collision'], -.5)
+        self.assertEqual(e.reward_parts['collision'], -.01)
         e.reset()
         self.assertEqual(e.collision_streak, 0)
         self.assertEqual(e.collisions, 0)
@@ -166,7 +139,7 @@ class MovementTests(unittest.TestCase):
             e.step(Action.BACKWARD)
         self.assertAlmostEqual(e.player.x, .1)
         self.assertFalse(e.step(Action.BACKWARD).moved)
-        self.assertEqual(e.reward_parts['collision'], -.5)
+        self.assertEqual(e.reward_parts['collision'], -.01)
         e.step(Action.LEFT)
         self.assertEqual(e.player.heading, 350)
         self.assertEqual(e.reward_parts['collision'], 0)

@@ -56,5 +56,6 @@ python -m unittest tests.test_collision_escape tests.test_training_dashboard tes
 
 Pierwsze polecenie uruchamia 14 testów audytu, drugie 46 testów audytu,
 podglądu, walidacji i batcha. Oba zestawy przeszły.
-Sześć starszych testów w `test_game.py` opisanych w README nadal oczekuje
-wyłączonych kar `collision` i `staying`; audyt ich nie zmienia.
+Późniejsze uporządkowanie nagród włączyło stałą karę za kolizję −0,01
+i usunęło kary za przebywanie w miejscu oraz ich testy. Dawne błędy testów
+zostały usunięte; aktualny pełny zestaw 125 testów przechodzi.
