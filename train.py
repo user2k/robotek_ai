@@ -7,6 +7,7 @@ import csv
 from datetime import datetime
 import json
 from pathlib import Path
+from queue import Empty
 import random
 from math import exp
 from time import perf_counter
@@ -87,7 +88,7 @@ def validation_options(agent):
 
 
 def run_validation(agent, model_path=DEFAULT_MODEL, stop=None, episode_options=None,
-                   checkpoint_path='', session='', on_status=None):
+                   checkpoint_path='', session='', on_status=None, validation_kind='manual'):
     """Stały osobny zestaw map, jeden robot, bez uczenia i eksploracji."""
     options = episode_options or validation_options(agent)
     mode, hidden, previous = agent.network.training, agent.hidden, agent.previous_action
@@ -100,6 +101,8 @@ def run_validation(agent, model_path=DEFAULT_MODEL, stop=None, episode_options=N
         agent.network.train(mode)
         agent.hidden, agent.previous_action = hidden, previous
         agent.random.setstate(rng)
+    result.update(episodes=agent.episodes, kind=validation_kind,
+                  timestamp=datetime.now().isoformat(timespec='seconds'))
     path = Path(model_path).with_name(Path(model_path).stem + '.validation.csv')
     path.parent.mkdir(parents=True, exist_ok=True)
     fields = ['timestamp', 'session', 'episodes', 'updates', 'rollouts', 'checkpoint',
@@ -115,6 +118,10 @@ def run_validation(agent, model_path=DEFAULT_MODEL, stop=None, episode_options=N
                 episodes=agent.episodes, updates=agent.updates, rollouts=agent.rollouts,
                 checkpoint=str(checkpoint_path), map_index=index, width=11, height=11, epsilon=0.,
                 **options, **metrics, maps=result['maps'], wins=result['wins'], success_rate=result['success_rate']))
+    # Jeden trwały wpis na ukończoną walidację; nie zapisujemy przerwanych ocen.
+    summary_path = Path(model_path).with_name(Path(model_path).stem + '.validation.jsonl')
+    with summary_path.open('a', encoding='utf-8') as file:
+        file.write(json.dumps({k: v for k, v in result.items() if k != 'results'}, ensure_ascii=False) + '\n')
     if on_status:
         on_status(f"Walidacja po {agent.episodes} grupach: {result['wins']}/100 wygranych · wynik {result['score']:.1f}")
     return result
@@ -122,7 +129,8 @@ def run_validation(agent, model_path=DEFAULT_MODEL, stop=None, episode_options=N
 
 def train(episodes=300, seed=7, model_path=DEFAULT_MODEL, progress=None, stop=None,
           resume=True, width=15, height=9, on_step=None, device="auto", batch_size=5,
-          on_status=None, plan=None, start_level=None, selection=None):
+          on_status=None, plan=None, start_level=None, selection=None,
+          validation_requests=None, on_validation=None, interventions=None):
     if episodes <= 0:
         raise ValueError("Liczba grup musi być dodatnia")
     if type(batch_size) is not int or not 1 <= batch_size <= 1024:
@@ -158,6 +166,21 @@ def train(episodes=300, seed=7, model_path=DEFAULT_MODEL, progress=None, stop=No
     completed_episodes = 0
     error = None
     session = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+
+    def validate_pending(options):
+        if validation_requests is None:
+            return
+        for _ in range(validation_requests.qsize()):
+            if stop is not None and stop.is_set():
+                raise InterruptedError('Walidacja zatrzymana')
+            try:
+                validation_requests.get_nowait()
+            except Empty:
+                return
+            result = run_validation(agent, model_path, stop=stop, episode_options=options,
+                                    session=session, on_status=on_status)
+            if on_validation:
+                on_validation(result)
     run_dir = model_path.parent / "runs"
     run_dir.mkdir(parents=True, exist_ok=True)
     csv_path = run_dir / f"{model_path.stem}-{session}.csv"
@@ -174,6 +197,10 @@ def train(episodes=300, seed=7, model_path=DEFAULT_MODEL, progress=None, stop=No
         all_writer.writeheader()
         for number in range(1, episodes + 1):
             if agent.curriculum.get('completed') or (stop is not None and stop.is_set()):
+                break
+            try:
+                validate_pending(validation_options(agent))
+            except InterruptedError:
                 break
             episode_number = start_episode + number
             map_seed = training_seed(seed, episode_number)
@@ -192,7 +219,7 @@ def train(episodes=300, seed=7, model_path=DEFAULT_MODEL, progress=None, stop=No
                 agent.reset_memory()
                 group = run_group(agent, [Episode(rows, **dict(episode_options, start_seed=lane_seed))
                                          if episode_options else Episode(rows) for lane_seed in seeds], seeds, epsilon,
-                                  stop=stop, on_step=on_step, on_status=on_status,
+                                  stop=stop, on_step=on_step, on_status=on_status, interventions=interventions,
                                   metadata={"episode": episode_number, "session_episode": number,
                                             "map_seed": map_seed, "epsilon": epsilon, "device": str(agent.device), "level": stage,
                                             "level_name": agent.curriculum["plan"][stage - 1].get("name", f"Poziom {stage}") if "plan" in agent.curriculum else ""})
@@ -258,10 +285,17 @@ def train(episodes=300, seed=7, model_path=DEFAULT_MODEL, progress=None, stop=No
                 if on_status:
                     on_status(f"Walidacja · 100 map 11×11 · po {episode_number} grupach · jeden robot · epsilon 0")
                 try:
-                    run_validation(agent, model_path, stop, episode_options or validation_options(agent),
-                                   checkpoint_path=snapshot, session=session, on_status=on_status)
+                    result = run_validation(agent, model_path, stop, episode_options or validation_options(agent),
+                                   checkpoint_path=snapshot, session=session, on_status=on_status, validation_kind='periodic')
+                    if on_validation:
+                        on_validation(result)
                 except InterruptedError:
                     break
+        if error is None and not (stop is not None and stop.is_set()):
+            try:
+                validate_pending(validation_options(agent))
+            except InterruptedError:
+                pass
     if error is None:
         if on_status:
             on_status("Zapisuję najnowszy model…")

@@ -64,6 +64,7 @@ class Episode:
         if sum(row.count('E') for row in self.rows) != 1:
             raise ValueError('Epizod wymaga dokładnie jednego pola END')
         self.timed_out = False
+        self.swatted = False
         self.steps = self.collisions = 0
         self.collision_streak = 0
         self.total_reward = 0.
@@ -74,20 +75,32 @@ class Episode:
 
     @property
     def done(self):
-        return self.player.won or not self.player.alive or self.timed_out
+        return self.swatted or self.player.won or not self.player.alive or self.timed_out
 
     @property
     def score(self):
         p = self.player
-        return 1000 * p.won - p.elapsed_time - 2 * p.damage - 250 * (not p.alive) - 100 * self.timed_out
+        return 1000 * p.won - p.elapsed_time - 2 * p.damage - 250 * (not p.alive) - 100 * self.timed_out - 20 * self.swatted
 
     @property
     def outcome(self):
+        if self.swatted:
+            return 'Boża kara −20'
         if self.player.won:
             return 'Wygrana!'
         if not self.player.alive:
             return self.player.death_reason
         return 'Koniec czasu' if self.timed_out else 'W trakcie'
+
+    def swat(self):
+        """Terminalna kara operatora, bez dodatkowej kary za zwykłą śmierć."""
+        if self.done:
+            return False
+        self.swatted = True
+        self.reward_parts = {'swat': -20.}
+        self.reward_totals['swat'] = -20.
+        self.total_reward -= 20.
+        return True
 
     def step(self, action):
         if self.done:

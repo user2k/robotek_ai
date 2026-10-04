@@ -7,6 +7,8 @@ from copy import deepcopy
 from threading import Event, Thread
 from time import monotonic
 import random
+import json
+import csv
 
 from episode import Action, Episode
 from maps import DEMO_MAP, generate_maze
@@ -46,6 +48,13 @@ class GameApp:
         self.events = Queue()
         self.preview_frames = Queue(maxsize=1)
         self.watch_training = Event()
+        self.validation_requests = Queue()
+        self.interventions = Queue()
+        self.training_bots = []
+        self.live_metadata = {}
+        self.validation_history = []
+        self.selected_bot = tk.StringVar(value='1')
+        self.swatter = tk.BooleanVar(value=False)
         self.preview_delay = 0.1
         self.last_preview_time = 0.0
         self.sampling_settings = None
@@ -53,7 +62,7 @@ class GameApp:
         self.current_options = {}
         self.current_level_name = ""
         self.current_rows = generate_maze(seed=self.map_seed)
-        root.title("Świat 2D — dotrzyj do END")
+        root.title("Roboty — trening, podgląd 3D i walidacje")
         root.configure(bg="#101827")
         root.resizable(False, False)
         tk.Label(root, text="ŚWIAT 2D", font=("Segoe UI", 22, "bold"),
@@ -72,10 +81,21 @@ class GameApp:
         self.canvas = tk.Canvas(views, width=len(self.current_rows[0]) * CELL, height=len(self.current_rows) * CELL,
                                 bg="#101827", highlightthickness=0)
         self.canvas.pack(side="left")
+        self.canvas.bind('<Button-1>', self.click_bot)
         camera_panel = tk.Frame(views, bg="#101827")
         camera_panel.pack(side="left", padx=(16, 0), anchor="n")
         tk.Label(camera_panel, text="OCZY ROBOTA · 3D", bg="#101827", fg="white",
                  font=("Segoe UI", 12, "bold")).pack(pady=(0, 8))
+        bot_controls = tk.Frame(camera_panel, bg='#101827')
+        bot_controls.pack()
+        tk.Label(bot_controls, text='Robot:', bg='#101827', fg='white').pack(side='left')
+        self.bot_choice = ttk.Combobox(bot_controls, textvariable=self.selected_bot,
+                                       values=('1',), state='readonly', width=5)
+        self.bot_choice.pack(side='left', padx=5)
+        self.bot_choice.bind('<<ComboboxSelected>>', self.select_bot)
+        tk.Checkbutton(bot_controls, text='Łapka −20', variable=self.swatter,
+                       command=self.update_swatter, bg='#101827', fg='white',
+                       selectcolor='#101827').pack(side='left')
         camera_screen = tk.Frame(camera_panel, width=320, height=240, bg="#131924")
         camera_screen.pack()
         camera_screen.pack_propagate(False)
@@ -93,6 +113,39 @@ class GameApp:
                                        width=38, height=7, anchor="nw", justify="left", wraplength=310)
         self.resource_label.pack(pady=(8, 0))
         self.resource_monitor = ResourceMonitor()
+        dashboard_panel = tk.Frame(views, bg='#101827')
+        dashboard_panel.pack(side='left', padx=(16, 0), anchor='n')
+        tk.Label(dashboard_panel, text='Q I WALIDACJE', bg='#101827', fg='white',
+                 font=('Segoe UI', 12, 'bold')).pack(pady=(0, 8))
+        self.q_label = tk.Label(dashboard_panel, text='Q aktualne: — · brak walidacji',
+                                bg='#101827', fg='#ffe080', justify='left', font=('Segoe UI', 13, 'bold'))
+        self.q_label.pack(pady=4)
+        self.q_average_label = tk.Label(dashboard_panel, text='Q średnie · 0/4 walidacji co 1000',
+                                        bg='#101827', fg='#aab8cb', justify='left', font=('Segoe UI', 9))
+        self.q_average_label.pack()
+        tk.Label(dashboard_panel, text='Q = wygrane / mapy · ● co 1000 / ◆ ręczna',
+                 bg='#101827', fg='white', font=('Segoe UI', 9)).pack(pady=(6, 0))
+        self.validation_graph = tk.Canvas(dashboard_panel, width=310, height=90,
+                                          bg='#172235', highlightthickness=0)
+        self.validation_graph.pack()
+        self.validation_queue_label = tk.Label(dashboard_panel, text='Kolejka walidacji: 0',
+                                               bg='#101827', fg='#aab8cb')
+        self.validation_queue_label.pack()
+        log_panel = tk.Frame(dashboard_panel, bg='#101827')
+        log_panel.pack()
+        self.validation_log = ttk.Treeview(log_panel, columns=('group', 'kind', 'wins', 'q', 'score'),
+                                           show='headings', height=8)
+        for key, label, width in [('group', 'Grupa', 50), ('kind', 'Typ', 55),
+                                   ('wins', 'Wygrane', 60), ('q', 'Q', 60), ('score', 'Wynik', 65)]:
+            self.validation_log.heading(key, text=label)
+            self.validation_log.column(key, width=width, anchor='center', stretch=False)
+        self.validation_log.pack(side='left')
+        log_scroll = ttk.Scrollbar(log_panel, orient='vertical', command=self.validation_log.yview)
+        log_scroll.pack(side='left', fill='y')
+        self.validation_log.configure(yscrollcommand=log_scroll.set)
+        tk.Label(dashboard_panel, text='Kliknij bota, aby przełączyć kamerę.\nŁapka: kliknięcie kończy przebieg z karą −20.',
+                 bg='#101827', fg='#aab8cb', font=('Segoe UI', 9)).pack(pady=8)
+        self.load_validation_history()
         legend = tk.Frame(root, bg="#101827")
         legend.pack(pady=12)
         for i, (color, label) in enumerate(COLORS.values()):
@@ -168,6 +221,116 @@ class GameApp:
         self.reset()
         self.poll_callback = root.after(100, self.poll_training)
 
+    @staticmethod
+    def validation_quality(result):
+        """Q użytkownika: skuteczność rzeczywistych przebiegów walidacji."""
+        return result['wins'] / result['maps']
+
+    def update_swatter(self):
+        self.canvas.configure(cursor='crosshair' if self.swatter.get() else '')
+
+    def select_bot(self, event=None):
+        if self.training_bots and self.live_metadata:
+            self.show_training_frame(self.training_bots[0], self.live_metadata)
+
+    def click_bot(self, event):
+        if not self.is_watching() or not self.training_bots:
+            return
+        selected = int(self.selected_bot.get()) - 1
+        candidates = [(index, (bot.player.x * CELL-event.x)**2 + (bot.player.y * CELL-event.y)**2)
+                      for index, bot in enumerate(self.training_bots) if not (self.swatter.get() and bot.done)]
+        candidates = [(index, distance) for index, distance in candidates if distance <= max(9, ROBOT_RADIUS*CELL)**2]
+        if not candidates:
+            return
+        index, _ = min(candidates, key=lambda item: (item[1], item[0] != selected, item[0]))
+        if self.swatter.get():
+            self.interventions.put((self.live_metadata['episode'], index))
+            self.training_status.configure(text=f'Łapka: robot {index+1} · zlecono Bożą karę −20')
+        else:
+            self.selected_bot.set(str(index+1))
+            self.select_bot()
+
+    def load_validation_history(self):
+        summary_path = MODEL_PATH.with_name(MODEL_PATH.stem + '.validation.jsonl')
+        try:
+            if summary_path.exists():
+                with summary_path.open(encoding='utf-8') as file:
+                    for line in file:
+                        try:
+                            self.add_validation(json.loads(line), redraw=False)
+                        except (ValueError, KeyError, TypeError):
+                            continue
+            else:
+                # Zachowaj także kompletne walidacje ze starszego CSV.
+                csv_path = MODEL_PATH.with_name(MODEL_PATH.stem + '.validation.csv')
+                if csv_path.exists():
+                    group = []
+                    with csv_path.open(encoding='utf-8') as file:
+                        for row in csv.DictReader(file):
+                            if row['map_index'] == '1':
+                                group = []
+                            group.append(row)
+                            if len(group) == int(row['maps']) and row['map_index'] == row['maps']:
+                                self.add_validation(dict(timestamp=row['timestamp'], episodes=int(row['episodes']),
+                                    kind='periodic' if row['checkpoint'] and int(row['episodes']) % 1000 == 0 else 'manual',
+                                    wins=int(row['wins']), maps=int(row['maps']),
+                                    score=sum(float(item['score']) for item in group)/len(group)), redraw=False)
+                    if self.validation_history:
+                        with summary_path.open('w', encoding='utf-8') as file:
+                            for entry in self.validation_history:
+                                file.write(json.dumps(entry, ensure_ascii=False) + '\n')
+        except (OSError, ValueError, KeyError):
+            self.validation_queue_label.configure(text='Nie udało się wczytać starszego loga walidacji')
+        self.draw_validations()
+
+    def add_validation(self, result, redraw=True):
+        if not all(key in result for key in ('maps', 'wins', 'score')):
+            return
+        result = {key: value for key, value in result.items() if key != 'results'}
+        self.validation_history.append(result)
+        item = self.validation_log.insert('', 'end', values=(result.get('episodes', '—'),
+            'co 1000' if result.get('kind') == 'periodic' else 'ręczna',
+            f"{result['wins']}/{result['maps']}", f"{self.validation_quality(result):.1%}", f"{result['score']:.1f}"))
+        self.validation_log.see(item)
+        if redraw:
+            self.draw_validations()
+
+    def draw_validations(self):
+        automatic = [row for row in self.validation_history if row.get('kind') == 'periodic'][-4:]
+        if self.validation_history:
+            latest = self.validation_history[-1]
+            self.q_label.configure(text=f"Q aktualne: {self.validation_quality(latest):.1%}\n"
+                f"{latest['wins']}/{latest['maps']} wygranych · grupa {latest.get('episodes', '—')}")
+        else:
+            self.q_label.configure(text='Q aktualne: — · brak walidacji')
+        text = 'Q średnie: —'
+        if automatic:
+            average = sum(self.validation_quality(row) for row in automatic) / len(automatic)
+            text = f'Q średnie: {average:.1%}'
+        text += f'\n{len(automatic)}/4 ostatnich walidacji co 1000'
+        self.q_average_label.configure(text=text)
+        graph = self.validation_graph
+        graph.delete('all')
+        entries = self.validation_history[-40:]
+        if not entries:
+            graph.create_text(155, 45, text='Pierwsza walidacja uzupełni wykres', fill='#aab8cb')
+            return
+        graph.create_text(3, 8, text='100%', anchor='nw', fill='#aab8cb')
+        graph.create_text(3, 60, text='0%', anchor='nw', fill='#aab8cb')
+        groups = [row.get('episodes', index) for index, row in enumerate(entries)]
+        first, last = min(groups), max(groups)
+        points = [(48+(group-first)*250/max(1, last-first), 65-self.validation_quality(row)*53)
+                  for group, row in zip(groups, entries)]
+        if len(points) > 1:
+            graph.create_line(*(v for point in points for v in point), fill='#22d3ee', width=2)
+        for (x, y), row in zip(points, entries):
+            if row.get('kind') == 'periodic':
+                graph.create_oval(x-3, y-3, x+3, y+3, fill='#22d3ee', outline='')
+            else:
+                graph.create_polygon(x, y-4, x+4, y, x, y+4, x-4, y, fill='#ffe080')
+        graph.create_text(48, 82, text=str(first), fill='#aab8cb')
+        graph.create_text(298, 82, text=str(last), anchor='e', fill='#aab8cb')
+
     def open_sampling(self):
         from tkinter import messagebox
         if self.training_thread is not None and self.training_thread.is_alive():
@@ -226,6 +389,8 @@ class GameApp:
         if self.is_watching():
             return
         self.stop_ai()
+        self.training_bots = []
+        self.live_metadata = {}
         self.episode = Episode(self.current_rows, **self.current_options)
         self.world = self.episode.world
         self.player = self.episode.player
@@ -296,6 +461,12 @@ class GameApp:
         self.training_stop.set()
         self.watch_training.clear()
         self.clear_preview()
+        for queue in (self.validation_requests, self.interventions):
+            try:
+                while True:
+                    queue.get_nowait()
+            except Empty:
+                pass
         self.watch_button.configure(text="Trenuj i oglądaj")
         self.message = "Zatrzymano AI; jeśli trwa trening, kończy zapisywanie modelu."
         self.draw()
@@ -374,17 +545,28 @@ class GameApp:
         if delay == 0 and now - self.last_preview_time < 0.03:
             return
         self.last_preview_time = now
-        frame = (deepcopy(episode), dict(metadata))
+        frame = deepcopy((episode, metadata))
         self.clear_preview()
         try:
             self.preview_frames.put_nowait(frame)
         except Full:
             pass
         # Ograniczenie tempa dotyczy podglądu, nie czasu wewnątrz gry.
-        if delay > 0 and not episode.done:
+        if delay > 0 and (metadata.get('active', 0) or not episode.done):
             self.training_stop.wait(delay)
 
     def show_training_frame(self, episode, metadata):
+        self.training_bots = metadata.get('bots', [])
+        self.live_metadata = metadata
+        if self.training_bots:
+            self.bot_choice.configure(values=tuple(str(i + 1) for i in range(len(self.training_bots))))
+            index = min(max(0, int(self.selected_bot.get()) - 1), len(self.training_bots) - 1)
+            self.selected_bot.set(str(index + 1))
+            episode = self.training_bots[index]
+            metadata = dict(metadata, lane=index + 1)
+            if 'bot_actions' in metadata:
+                metadata['action'] = metadata['bot_actions'][index]
+                metadata['reward'] = metadata['bot_rewards'][index]
         self.episode = episode
         self.world, self.player = episode.world, episode.player
         self.current_rows = list(episode.rows)
@@ -435,6 +617,13 @@ class GameApp:
         self.stop_ai()
         self.training_stop = Event()
         self.clear_preview()
+        self.training_bots = []
+        self.live_metadata = {}
+        try:
+            while True:
+                self.interventions.get_nowait()
+        except Empty:
+            pass
         if watch:
             self.watch_training.set()
         else:
@@ -445,7 +634,7 @@ class GameApp:
         self.start_level_choice.set("Kontynuuj")
         self.batch_input.configure(state="disabled")
         self.device_input.configure(state="disabled")
-        self.validation_button.configure(state="disabled")
+        self.validation_button.configure(state="normal")
         self.train_button.configure(state="disabled")
         self.ai_button.configure(state="disabled")
         self.training_status.configure(text="Wczytuję zapis nauki i uruchamiam trening według planu poziomów…")
@@ -456,7 +645,9 @@ class GameApp:
                 report = train(count, model_path=MODEL_PATH, batch_size=batch_size, device=device,
                                on_status=lambda message: self.events.put(("phase", message)),
                                progress=lambda row: self.events.put(("progress", row)),
-                               stop=self.training_stop, on_step=self.publish_training_frame, plan=plan, start_level=start_level, selection=selection)
+                               stop=self.training_stop, on_step=self.publish_training_frame, plan=plan, start_level=start_level, selection=selection,
+                               validation_requests=self.validation_requests, interventions=self.interventions,
+                               on_validation=lambda result: self.events.put(('validation_result', result)))
                 self.events.put(("finished", report))
             except Exception as error:
                 self.events.put(("error", str(error)))
@@ -466,6 +657,9 @@ class GameApp:
 
     def start_validation(self):
         if self.training_thread is not None and self.training_thread.is_alive():
+            if not self.training_stop.is_set():
+                self.validation_requests.put('manual')
+                self.validation_queue_label.configure(text=f'Kolejka walidacji: {self.validation_requests.qsize()} · po bieżącej grupie / ocenie')
             return
         from train import latest_path
         source = latest_path(MODEL_PATH) if latest_path(MODEL_PATH).exists() else MODEL_PATH
@@ -478,7 +672,7 @@ class GameApp:
         device = self.device_choice.get()
         self.watch_training.clear()
         self.clear_preview()
-        for button in (self.train_button, self.ai_button, self.validation_button, self.watch_button):
+        for button in (self.train_button, self.ai_button, self.watch_button):
             button.configure(state="disabled")
         self.training_status.configure(text="Walidacja najnowszego modelu na 100 mapach 11×11… Stop przerywa ocenę.")
 
@@ -486,8 +680,16 @@ class GameApp:
             try:
                 from visual_agent import VisualAgent
                 from train import run_validation
-                result = run_validation(VisualAgent.load(source, device=device), MODEL_PATH,
-                                        stop=self.training_stop, checkpoint_path=source)
+                agent = VisualAgent.load(source, device=device)
+                while True:
+                    result = run_validation(agent, MODEL_PATH, stop=self.training_stop, checkpoint_path=source)
+                    self.events.put(('validation_result', result))
+                    if self.training_stop.is_set():
+                        raise InterruptedError
+                    try:
+                        self.validation_requests.get_nowait()
+                    except Empty:
+                        break
                 self.events.put(("validated", result))
             except InterruptedError:
                 self.events.put(("validation_stopped", None))
@@ -513,6 +715,8 @@ class GameApp:
                 kind, data = self.events.get_nowait()
                 if kind == "phase":
                     self.training_status.configure(text=data)
+                elif kind == 'validation_result':
+                    self.add_validation(data)
                 elif kind == "progress":
                     self.group_summary_label.configure(text=f"Ostatnie 20 grup: {data.get('recent_group_wins', 0)}/"
                         f"{data.get('recent_group_count', 0)} wygranych ({data['success_rate']:.0%})")
@@ -555,6 +759,11 @@ class GameApp:
             self.watch_button.configure(text="Trenuj i oglądaj")
             for button in (self.train_button, self.ai_button, self.validation_button, self.watch_button):
                 button.configure(state="normal")
+            # Kliknięcie przy samym końcu pracy też uruchamia ocenę.
+            if not self.training_stop.is_set() and not self.validation_requests.empty():
+                self.validation_requests.get_nowait()
+                self.start_validation()
+        self.validation_queue_label.configure(text=f'Kolejka walidacji: {self.validation_requests.qsize()}')
         self.poll_callback = self.root.after(30, self.poll_training)
 
     def close(self):
@@ -602,6 +811,23 @@ class GameApp:
                            fill="#ffe080" if self.player.alive else "#ff6666", outline="white", tags="robot")
         canvas.create_line(cx, cy, cx + dx * radius, cy + dy * radius,
                            fill="#15243b", width=2, tags="heading")
+        if self.training_bots:
+            canvas.delete('robot')
+            canvas.delete('heading')
+            colors = ('#ffe080', '#22d3ee', '#f472b6', '#a3e635', '#c4b5fd', '#fb923c')
+            selected = int(self.selected_bot.get()) - 1
+            for index, bot in enumerate(self.training_bots):
+                player = bot.player
+                x, y = player.x * CELL, player.y * CELL
+                color = '#ef4444' if bot.swatted else ('#64748b' if bot.done else colors[index % len(colors)])
+                canvas.create_oval(x-radius, y-radius, x+radius, y+radius, fill=color,
+                                   outline='white' if index == selected else '#15243b',
+                                   width=2 if index == selected else 1, tags=f'bot-{index}')
+                dx, dy = player.direction_vector
+                canvas.create_line(x, y, x+dx*radius, y+dy*radius, fill='#15243b', width=2)
+                if index == selected:
+                    canvas.create_text(x, y-12, text=str(index+1), fill='white',
+                                        font=('Segoe UI', 9, 'bold'))
         if self.episode.done and not self.is_watching():
             width, height = self.world.width * CELL, self.world.height * CELL
             margin = min(80, width * 0.08)

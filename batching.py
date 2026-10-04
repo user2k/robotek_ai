@@ -1,5 +1,6 @@
 """Wspólne wagi, jedna mapa i niezależne stany GRU/RNG w batchu."""
 import random
+from queue import Empty
 from time import perf_counter
 import torch
 from visual_agent import START_ACTION
@@ -17,7 +18,7 @@ def best_index(episodes):
         episodes[i].score, -episodes[i].steps, -i))
 
 
-def run_group(agent, episodes, seeds, epsilon, stop=None, on_step=None, metadata=None, on_status=None):
+def run_group(agent, episodes, seeds, epsilon, stop=None, on_step=None, metadata=None, on_status=None, interventions=None):
     if not episodes or len(episodes) != len(seeds):
         raise ValueError('Batch wymaga epizodów i jednego seeda na każdego robota')
     count = len(episodes)
@@ -31,6 +32,8 @@ def run_group(agent, episodes, seeds, epsilon, stop=None, on_step=None, metadata
     start = perf_counter()
     base = metadata or {}
     last_status = float("-inf")
+    last_actions = [None] * count
+    last_rewards = [0.] * count
 
     def publish(lane, action, reward):
         nonlocal last_status
@@ -47,12 +50,36 @@ def run_group(agent, episodes, seeds, epsilon, stop=None, on_step=None, metadata
             on_step(episodes[lane], {**base, 'action': action, 'reward': reward,
                     'lane': lane + 1, 'batch_size': count, 'active': len(active),
                     'rollout_seed': seeds[lane], 'total_steps': steps,
+                    'bots': episodes,
+                    'bot_actions': last_actions, 'bot_rewards': last_rewards,
                     'steps_per_second': steps / max(perf_counter() - start, 1e-9)})
 
     publish(0, None, 0.)
     while active:
         if stop is not None and stop.is_set():
             return None
+        if interventions is not None:
+            while True:
+                try:
+                    group_number, lane = interventions.get_nowait()
+                except Empty:
+                    break
+                # Stare kliknięcie nie może zabić robota z nowej grupy.
+                if group_number != base.get('episode') or lane not in active:
+                    continue
+                trace = trajectories[lane]
+                # START nie ma jeszcze przejścia do uczenia.
+                if not trace['actions']:
+                    interventions.put((group_number, lane))
+                    break
+                if episodes[lane].swat():
+                    trace['rewards'][-1] -= 20.
+                    trace['dones'][-1] = True
+                    last_rewards[lane] = -20.
+            active = [i for i in active if not episodes[i].done]
+            if not active:
+                publish(0, None, -20.)
+                break
         states = camera.render([camera_pose(episodes[i].player) for i in active])
         actions, next_hidden = agent.act_batch(
             states, [previous[i] for i in active],
@@ -64,6 +91,7 @@ def run_group(agent, episodes, seeds, epsilon, stop=None, on_step=None, metadata
             if stop is not None and stop.is_set():
                 return None
             result = episodes[lane].step(action)
+            last_actions[lane], last_rewards[lane] = action, result.reward
             trace = trajectories[lane]
             trace['poses'].append(camera_pose(episodes[lane].player))
             trace['actions'].append(action)

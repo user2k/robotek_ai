@@ -8,7 +8,72 @@ python main.py
 python -m unittest -v
 ```
 
-## Aktualny wariant treningu
+## Trenuj i oglądaj
+
+Przycisk **Trenuj i oglądaj** pokazuje cały batch robotów na wspólnej mapie.
+Kolory rozróżniają boty; biały obrys i numer oznaczają wybranego robota.
+Kliknięcie bota lub wybór numeru nad kamerą przełącza podgląd 3D.
+Szare roboty zakończyły przebieg, czerwone zostały ubite łapką.
+Tempo podglądu steruje wspólnymi krokami batcha; MAX odświeża podgląd
+bez celowego spowalniania treningu.
+
+**Walidacja** podczas treningu dodaje osobną ocenę do kolejki. Oceny wykonują
+się kolejno między grupami; kliknięcia podczas oceny dodają następne oceny.
+Co 1000 globalnych grup nadal wykonywana jest automatyczna walidacja na
+100 stałych mapach, bez eksploracji i aktualizacji wag. Każda ukończona ocena
+uzupełnia tabelę i wykres skuteczności Q (ostatnie 40 ocen; pełny log w tabeli).
+Wyniki poszczególnych map trafiają do `models/agent_continuous.validation.csv`,
+a podsumowania do `models/agent_continuous.validation.jsonl`; GUI wczytuje
+historię po ponownym uruchomieniu. Stop przerywa ocenę i usuwa oczekujące żądania.
+
+**Q oznacza jakość bota: procent map walidacyjnych zakończonych sukcesem**
+(`wygrane / liczba map × 100%`). **Q aktualne** pochodzi z ostatniej ukończonej
+walidacji, ręcznej lub automatycznej. **Q średnie** to średnia skuteczności
+z ostatnich czterech automatycznych walidacji co 1000 grup. Jeśli dostępnych
+jest mniej ocen, GUI uśrednia dostępne i pokazuje ich liczbę (np. 2/4).
+Ręczne walidacje uzupełniają Q aktualne, wykres i log, ale nie Q średnie.
+Starsze logi też dostarczają Q na podstawie liczby wygranych i map.
+Wartości funkcji Q sieci DQN nie są wyświetlane pod tym oznaczeniem.
+
+Włącz **Łapka −20** i kliknij zapętlonego bota. Kara kończy jego przebieg,
+odejmuje dokładnie 20 od wyniku i nagrody oraz oznacza ostatnie przejście
+jako terminalne w historii BPTT. Bot nie dostaje dodatkowej kary za zwykłą
+śmierć. Pozostałe boty trenują dalej. Kara dotyczy wyłącznie żywych przebiegów
+w bieżącej grupie; przy nakładających się botach preferowany jest wybrany bot.
+Przy START kara czeka na pierwszy ruch, aby istniało przejście do uczenia.
+Przebieg ukaranego bota podlega dotychczasowym zasadom doboru do BPTT.
+
+Testy nowych funkcji: `python -m unittest test_training_dashboard test_live_gui test_validation test_batching -q`.
+
+## Zatrzymanie eksperymentu — 4 października 2026
+
+Decyzja prowadzącego: **zatrzymać dalszy trening obecnego wariantu** ze względu
+na błąd założenia generatora. Generator zawsze chroni bezpieczną drogę
+START → END, a zagrożenia umieszcza poza nią. To daje botom wskazówkę:
+odnogi z zagrożeniami można odrzucać zamiast uczyć się ogólnej nawigacji.
+
+Konkluzja z obserwacji prowadzącego: boty nauczyły się przede wszystkim
+eliminować odnogi z zagrożeniami. Jeśli poprawne przejście leży obok zagrożenia,
+mogą również je odrzucać i powtarzać nieskuteczne akcje. Dalszy trening na tym
+rozkładzie map grozi utrwaleniem tej niepożądanej strategii. To interpretacja
+obserwowanego zachowania; dotychczasowe testy nie analizowały decyzji sieci.
+
+Walidacja korzysta z tego samego generatora, więc wysokie Q na jej mapach
+nie wystarcza do wykazania ogólnej umiejętności przechodzenia labiryntów.
+Stałe, osobne seedy chronią przed oceną na mapach treningowych, ale nie usuwają
+wspólnego błędu założenia obu zbiorów.
+
+Audyt kolizji opisany w `COLLISION_AUDIT.md` sprawdzał mechanikę ruchu,
+cofania i obrys robota. Jego pozytywny wynik nie wyklucza zapętlenia strategii
+wyuczonej przez sieć ani błędu projektu środowiska treningowego.
+
+**Plan kolejnego eksperymentu na nowym branchu:** generator map bez
+zagrożeń i specjalnych terenów, z polami START, END i zwykłym podłożem.
+Pierwszym celem będzie sprawdzenie nauki nawigacji bez wskazówki wynikającej
+z rozmieszczenia zagrożeń. Zmiana generatora pozostaje do wykonania na tym
+branchu; poniższy opis dotyczy dotychczasowego wariantu.
+
+## Dotychczasowy wariant treningu
 
 Kary za kolizje oraz za przebywanie w jednym polu są **celowo wyłączone**.
 Fizyczna blokada ruchu przy kolizji nadal działa, a nieudany krok zużywa czas.
@@ -18,8 +83,9 @@ kary utrudniały naukę i prowadziły do załamania treningu; ich wyłączenie p
 To decyzja eksperymentalna wynikająca z tych obserwacji, nie dowód konkretnego
 mechanizmu zachodzącego w GRU.
 
-Aktualnie zapisany `levels.json` zawiera jeden losowy poziom 11×11: krok 0,5 m,
-obrót 45°, limit 100 s i losowy kierunek startowy. Próg 999 wygranych grup z rzędu
+Przy zatrzymaniu eksperymentu `levels.json` zawiera jeden losowy poziom 11×11:
+krok 0,1 m, obrót 15°, limit 300 s i losowy kierunek startowy.
+Próg 9999 wygranych grup z rzędu
 celowo utrzymuje naukę na tym poziomie. Każda grupa dostaje nową mapę;
 dalszy rozwój ma polegać na zwiększaniu szczegółowości ruchu, bez powiększania map.
 Zmiana kroku lub kąta może chwilowo pogorszyć wyniki; porównuj wyniki walidacji

@@ -1,13 +1,13 @@
 [
   {
-    "name": "Poziom 2",
+    "name": "Poziom xxx",
     "start_direction": "random",
-    "move_distance": 0.25,
-    "turn_degrees": 30.0,
+    "move_distance": 0.1,
+    "turn_degrees": 15.0,
     "mode": "random",
     "size": 11,
     "required": 9999,
-    "max_time": 200.0,
+    "max_time": 300.0,
     "rows": [
       "...........",
       ".S.........",
