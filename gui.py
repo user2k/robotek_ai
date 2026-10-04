@@ -21,6 +21,7 @@ from sampling_gui import SamplingDialog, load_settings
 from camera import camera_ppm, CAMERA_ANGLE, CAMERA_DEPTH
 from tensor_camera import TensorCamera, camera_pose
 from resources import ResourceMonitor, format_resources
+from map_view import map_scale, terrain_ppm
 from config.config import MODEL_PATH, MODEL_VERSION
 
 COLORS = {
@@ -52,6 +53,8 @@ class GameApp:
         self.interventions = Queue()
         self.training_bots = []
         self.live_metadata = {}
+        self.cell = CELL
+        self._terrain_key = None
         self.validation_history = []
         self.selected_bot = tk.StringVar(value='1')
         self.swatter = tk.BooleanVar(value=False)
@@ -110,7 +113,7 @@ class GameApp:
                  bg="#101827", fg="#aab8cb").pack(pady=8)
         self.resource_label = tk.Label(camera_panel, text="Odczyt CPU / RAM / GPU…",
                                        bg="#101827", fg="#aab8cb", font=("Segoe UI", 10),
-                                       width=38, height=7, anchor="nw", justify="left", wraplength=310)
+                                       width=38, height=5, anchor="nw", justify="left", wraplength=310)
         self.resource_label.pack(pady=(8, 0))
         self.resource_monitor = ResourceMonitor()
         dashboard_panel = tk.Frame(views, bg='#101827')
@@ -151,7 +154,7 @@ class GameApp:
         for i, (color, label) in enumerate(COLORS.values()):
             tk.Label(legend, text="  " + label + "  ", bg=color, fg="#101827",
                      font=("Segoe UI", 10, "bold")).grid(row=i // 4, column=i % 4, padx=3, pady=3)
-        status_panel = tk.Frame(root, bg="#101827", width=1060, height=124)
+        status_panel = tk.Frame(root, bg="#101827", width=1060, height=88)
         status_panel.pack(padx=20, pady=(0, 8))
         status_panel.pack_propagate(False)
         self.status = tk.Label(status_panel, bg="#101827", fg="white",
@@ -207,7 +210,7 @@ class GameApp:
         tk.Checkbutton(watch_controls, text="MAX", variable=self.preview_max,
                        command=lambda: self.set_preview_speed(self.preview_speed.get()),
                        bg="#101827", fg="white", selectcolor="#101827").pack(side="left", padx=4)
-        training_panel = tk.Frame(root, bg="#101827", width=1060, height=76)
+        training_panel = tk.Frame(root, bg="#101827", width=1060, height=60)
         training_panel.pack(pady=(6, 8))
         training_panel.pack_propagate(False)
         self.group_summary_label = tk.Label(training_panel, text="Ostatnie 20 grup: oczekiwanie na wynik",
@@ -237,9 +240,9 @@ class GameApp:
         if not self.is_watching() or not self.training_bots:
             return
         selected = int(self.selected_bot.get()) - 1
-        candidates = [(index, (bot.player.x * CELL-event.x)**2 + (bot.player.y * CELL-event.y)**2)
+        candidates = [(index, (bot.player.x * self.cell-event.x)**2 + (bot.player.y * self.cell-event.y)**2)
                       for index, bot in enumerate(self.training_bots) if not (self.swatter.get() and bot.done)]
-        candidates = [(index, distance) for index, distance in candidates if distance <= max(9, ROBOT_RADIUS*CELL)**2]
+        candidates = [(index, distance) for index, distance in candidates if distance <= max(9, ROBOT_RADIUS*self.cell)**2]
         if not candidates:
             return
         index, _ = min(candidates, key=lambda item: (item[1], item[0] != selected, item[0]))
@@ -394,7 +397,7 @@ class GameApp:
         self.episode = Episode(self.current_rows, **self.current_options)
         self.world = self.episode.world
         self.player = self.episode.player
-        self.canvas.configure(width=self.world.width * CELL, height=self.world.height * CELL)
+        self.fit_map()
         self.map_info.configure(text=f"Seed: {self.map_seed} · bezpieczna droga ≤ 200" if self.map_seed is not None
                                 else "Mapa demonstracyjna")
         if self.current_level_name:
@@ -573,7 +576,7 @@ class GameApp:
         self.current_options = dict(max_time=episode.max_time, move_distance=episode.move_distance, turn_degrees=episode.turn_degrees, start_direction=episode.start_direction)
         self.current_level_name = metadata.get("level_name", "")
         self.map_seed = metadata["map_seed"]
-        self.canvas.configure(width=self.world.width * CELL, height=self.world.height * CELL)
+        self.fit_map()
         self.map_info.configure(text=f"TRENING · grupa {metadata['episode']} · robot {metadata.get('lane', 1)}/{metadata.get('batch_size', 1)} · seed: {self.map_seed}")
         if "level" in metadata:
             self.map_info.configure(text=f"TRENING · poziom {metadata['level']} {metadata.get('level_name', '')} · grupa {metadata['episode']} · robot {metadata.get('lane', 1)}")
@@ -773,6 +776,40 @@ class GameApp:
         self.root.after_cancel(self.poll_callback)
         self.root.destroy()
 
+    def fit_map(self):
+        max_width = min(720, max(120, self.root.winfo_screenwidth()-720))
+        max_height = min(600, max(120, self.root.winfo_screenheight()-550))
+        self.cell = map_scale(self.world.width, self.world.height, max_width, max_height)
+        self.canvas.configure(width=int(self.world.width*self.cell), height=int(self.world.height*self.cell))
+
+    def draw_terrain(self):
+        key = (tuple(self.episode.rows), self.cell)
+        if key == self._terrain_key:
+            return
+        self._terrain_key = key
+        canvas, cell = self.canvas, self.cell
+        canvas.delete('all')
+        if cell < 12:
+            self.terrain_image = tk.PhotoImage(data=terrain_ppm(self.episode.rows, cell,
+                {terrain.value: color for terrain, (color, _) in COLORS.items()}), format='PPM')
+            canvas.create_image(0, 0, image=self.terrain_image, anchor='nw', tags='terrain')
+        for y, row in enumerate(self.episode.rows):
+            for x, symbol in enumerate(row):
+                terrain = Terrain(symbol)
+                left, top = x*cell, y*cell
+                if cell >= 12:
+                    canvas.create_rectangle(left+1, top+1, left+cell-1, top+cell-1,
+                                            fill=COLORS[terrain][0], outline='#253349', tags='terrain')
+                if terrain in (Terrain.START, Terrain.END):
+                    canvas.create_text(left+cell/2, top+cell/2,
+                                       text=('START' if terrain is Terrain.START else 'END') if cell >= 24 else symbol,
+                                       fill='white' if cell < 12 else '#101827',
+                                       font=('Segoe UI', 8, 'bold'), tags='terrain')
+                elif cell >= 24 and terrain in (Terrain.WATER, Terrain.SWAMP, Terrain.FIRE, Terrain.PAVEMENT):
+                    canvas.create_text(left+cell/2, top+cell/2,
+                                       text={Terrain.WATER: '≈', Terrain.SWAMP: '≋', Terrain.FIRE: 'F', Terrain.PAVEMENT: '▦'}[terrain],
+                                       fill='#172b3a', font=('Segoe UI', min(20, int(cell/2)), 'bold'), tags='terrain')
+
     def draw(self):
         self.movement_label.configure(text=f"Pole: 1×1 m · robot: Ø20 cm · krok: {self.player.move_distance:g} m · obrót: {self.player.turn_degrees:g}°")
         show_camera = self.camera_enabled.get() and (self.work_kind != "training" or self.is_watching())
@@ -788,25 +825,12 @@ class GameApp:
             self.camera_image = None
             self.camera_view.configure(image="", text="Podgląd kamery wyłączony")
         canvas = self.canvas
-        canvas.delete("all")
-        for y in range(self.world.height):
-            for x in range(self.world.width):
-                terrain = self.world.tile_at(x, y).terrain
-                left, top = x * CELL, y * CELL
-                canvas.create_rectangle(left + 1, top + 1, left + CELL - 1, top + CELL - 1,
-                                        fill=COLORS[terrain][0], outline="#253349")
-                if terrain in (Terrain.START, Terrain.END):
-                    canvas.create_text(left + CELL / 2, top + 9,
-                                       text="START" if terrain is Terrain.START else "END",
-                                       fill="#101827", font=("Segoe UI", 8, "bold"))
-                elif terrain in (Terrain.WATER, Terrain.SWAMP, Terrain.FIRE, Terrain.PAVEMENT):
-                    canvas.create_text(left + CELL / 2, top + CELL / 2,
-                                       text={Terrain.WATER: "≈", Terrain.SWAMP: "≋",
-                                             Terrain.FIRE: "F", Terrain.PAVEMENT: "▦"}[terrain],
-                                       fill="#172b3a", font=("Segoe UI", 20, "bold"))
-        cx, cy = self.player.x * CELL, self.player.y * CELL
+        canvas.delete('overlay')
+        self.draw_terrain()
+        cell = self.cell
+        cx, cy = self.player.x * cell, self.player.y * cell
         dx, dy = self.player.direction_vector
-        radius = ROBOT_RADIUS * CELL
+        radius = max(2, ROBOT_RADIUS * cell)
         canvas.create_oval(cx - radius, cy - radius, cx + radius, cy + radius,
                            fill="#ffe080" if self.player.alive else "#ff6666", outline="white", tags="robot")
         canvas.create_line(cx, cy, cx + dx * radius, cy + dy * radius,
@@ -818,7 +842,7 @@ class GameApp:
             selected = int(self.selected_bot.get()) - 1
             for index, bot in enumerate(self.training_bots):
                 player = bot.player
-                x, y = player.x * CELL, player.y * CELL
+                x, y = player.x * cell, player.y * cell
                 color = '#ef4444' if bot.swatted else ('#64748b' if bot.done else colors[index % len(colors)])
                 canvas.create_oval(x-radius, y-radius, x+radius, y+radius, fill=color,
                                    outline='white' if index == selected else '#15243b',
@@ -829,7 +853,7 @@ class GameApp:
                     canvas.create_text(x, y-12, text=str(index+1), fill='white',
                                         font=('Segoe UI', 9, 'bold'))
         if self.episode.done and not self.is_watching():
-            width, height = self.world.width * CELL, self.world.height * CELL
+            width, height = self.world.width * cell, self.world.height * cell
             margin = min(80, width * 0.08)
             canvas.create_rectangle(margin, height / 2 - 60, width - margin, height / 2 + 60,
                                     fill="#101827", outline="#ffe080", width=2)
@@ -841,6 +865,10 @@ class GameApp:
             canvas.create_text(width / 2, height / 2 + 24,
                                text="Naciśnij R, aby zacząć od nowa",
                                fill="#cbd5e1", font=("Segoe UI", 11), width=width - 2 * margin - 12)
+        terrain_items = set(canvas.find_withtag('terrain'))
+        for item in canvas.find_all():
+            if item not in terrain_items:
+                canvas.addtag_withtag('overlay', item)
         p = self.player
         hazard = f"Woda: {p.water_distance:.1f}/3 m | Ogień: {p.fire_distance:.1f}/2 m"
         if p.burning_distance is not None:

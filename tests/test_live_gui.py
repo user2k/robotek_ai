@@ -27,6 +27,11 @@ class LiveGuiTests(unittest.TestCase):
         self.app.close()
         if self.app.training_thread is not None:
             self.app.training_thread.join(timeout=3)
+        # Zbieraj cykle Tkinter w głównym wątku, zanim zrobi to nowy worker.
+        import gc
+        self.app = None
+        self.root = None
+        gc.collect()
 
     def test_keys_move_continuously_and_robot_is_drawn_to_scale(self):
         from visual_agent import observe_camera

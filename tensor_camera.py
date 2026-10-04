@@ -1,5 +1,5 @@
 """Deterministyczny raycasting PyTorch: cała paczka kamer na urządzeniu sieci."""
-from math import tan, radians
+from math import tan, radians, cos
 import torch
 from camera import PALETTE, CAMERA_ANGLE, CAMERA_DEPTH
 from world import Terrain
@@ -35,11 +35,18 @@ class TensorCamera:
     def render(self, poses):
         poses = torch.as_tensor(poses, device=self.device, dtype=torch.float64)
         # Bounded temporary ray/rectangle tensors even for full-episode reconstruction.
-        return torch.cat([self._render(chunk) for chunk in poses.split(64)], dim=0)
+        chunk_size = max(1, min(64, 1_000_000 // (self.width*len(self.walls))))
+        return torch.cat([self._render(chunk) for chunk in poses.split(chunk_size)], dim=0)
 
     def _render(self, poses):
         b = poses.shape[0]
         px, py, dx, dy = [poses[:, i:i+1] for i in range(4)]
+        radius = CAMERA_DEPTH / cos(radians(CAMERA_ANGLE/2)) + 1e-8
+        walls = self.walls[
+            (self.walls[:, 2] >= px.min()-radius) & (self.walls[:, 0] <= px.max()+radius) &
+            (self.walls[:, 3] >= py.min()-radius) & (self.walls[:, 1] <= py.max()+radius)]
+        if len(walls) == 0:
+            walls = self.walls[-4:]  # Granice za zasięgiem: brak widocznego trafienia.
         rx, ry = dx - dy * self.columns, dy + dx * self.columns
         image = torch.tensor([19, 25, 36], device=self.device, dtype=torch.uint8).expand(b, self.height, self.width, 3).clone()
         xs = px[:, None] + self.floor_distances[None, :, None] * rx[:, None]
@@ -59,8 +66,8 @@ class TensorCamera:
         image[:, int(self.horizon):] = torch.where(valid[..., None], floor_pixels, image[:, int(self.horizon):])
         # Przecięcie promieni ze wszystkimi prostokątami ścian; najbliższy zasłania resztę.
         near, far = [], []
-        for origin, ray, low, high in ((px, rx, self.walls[:, 0], self.walls[:, 2]),
-                                       (py, ry, self.walls[:, 1], self.walls[:, 3])):
+        for origin, ray, low, high in ((px, rx, walls[:, 0], walls[:, 2]),
+                                       (py, ry, walls[:, 1], walls[:, 3])):
             parallel = ray.abs() < 1e-15
             safe_ray = torch.where(parallel, torch.ones_like(ray), ray)
             a = (low - origin[..., None]) / safe_ray[..., None]

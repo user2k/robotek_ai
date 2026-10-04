@@ -18,7 +18,7 @@ from sampling import validate_sampling, sample_ranked
 from visual_agent import DEFAULT_MODEL, VisualAgent, MOVEMENT
 from camera import CAMERA_ANGLE, CAMERA_DEPTH
 from episode import Episode
-from maps import generate_maze, DEFAULT_FIELDS, validate_fields
+from maps import generate_maze, DEFAULT_FIELDS, validate_fields, MAX_MAP_SIZE
 from curriculum import prepare_curriculum, level_rows, advance_level, load_plan, record_streak, level_options
 
 VALIDATION_SEEDS = tuple(-2000001 - 2 * i for i in range(100))
@@ -37,9 +37,9 @@ def training_seed(seed, episode_number):
 
 
 def training_size(width, height, recent_average):
-    """Jeden awans po pełnym oknie wygranych; maksymalnie 15×15."""
+    """Jeden awans po pełnym oknie wygranych; maksymalnie 255×255."""
     increase = 2 if recent_average == 1 else 0
-    return min(15, width + increase), min(15, height + increase)
+    return min(MAX_MAP_SIZE, width + increase), min(MAX_MAP_SIZE, height + increase)
 
 
 def advance_curriculum(curriculum, won):

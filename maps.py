@@ -6,6 +6,14 @@ import random
 from world import Terrain
 
 DEFAULT_FIELDS = 'SE#.'
+MIN_MAP_SIZE = 5
+MAX_MAP_SIZE = 255
+
+
+def validate_size(size):
+    if type(size) is not int or not MIN_MAP_SIZE <= size <= MAX_MAP_SIZE or size % 2 == 0:
+        raise ValueError('Rozmiar mapy musi być nieparzystą liczbą całkowitą od 5 do 255.')
+    return size
 
 
 def validate_fields(fields):
@@ -44,9 +52,8 @@ def generate_maze(width=15, height=9, seed=None, max_time=200.0, pola=None):
     bez wyróżniania bezpiecznej trasy. SE# oznacza zwykłe podłoże korytarzy.
     Brak pola zachowuje dawny generator z chronioną drogą z ziemi i bruku.
     """
-    if (not isinstance(width, int) or not isinstance(height, int)
-            or width < 5 or height < 5 or width % 2 == 0 or height % 2 == 0):
-        raise ValueError("Wymiary labiryntu muszą być nieparzyste i wynosić co najmniej 5")
+    validate_size(width)
+    validate_size(height)
     if not isfinite(max_time) or max_time < 2:
         raise ValueError("Limit czasu generatora musi być skończony i wynosić co najmniej 2")
     if pola is not None:

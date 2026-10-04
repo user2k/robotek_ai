@@ -7,7 +7,9 @@ class CurriculumTests(unittest.TestCase):
         self.assertEqual(training_size(5, 5, 1), (7, 7))
         self.assertEqual(training_size(7, 7, 0.95), (7, 7))
         self.assertEqual(training_size(13, 13, 1), (15, 15))
-        self.assertEqual(training_size(15, 15, 1), (15, 15))
+        self.assertEqual(training_size(15, 15, 1), (17, 17))
+        self.assertEqual(training_size(253, 253, 1), (255, 255))
+        self.assertEqual(training_size(255, 255, 1), (255, 255))
 
     def test_promotion_requires_twenty_wins_on_current_size(self):
         from train import advance_curriculum

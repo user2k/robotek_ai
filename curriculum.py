@@ -3,12 +3,12 @@ from copy import deepcopy
 import json
 from math import isfinite
 from pathlib import Path
-from maps import generate_maze, validate_fields, DEFAULT_FIELDS
+from maps import generate_maze, validate_fields, DEFAULT_FIELDS, validate_size
 from world import World
 from player import validate_movement
 
 from config.config import PLAN_PATH
-SIZES = (5, 7, 9, 11)
+SIZES = tuple(range(5, 256, 2))
 
 
 def blank_map(size):
@@ -48,8 +48,12 @@ def validate_plan(plan):
         limit = level['max_time']
         if type(limit) not in (int, float) or not isfinite(limit) or not 2 <= limit <= 1000000:
             raise ValueError(f'Poziom {i}: limit czasu musi wynosić od 2 do 1 000 000 sekund.')
-        if level.get('mode') not in ('random', 'custom') or level.get('size') not in SIZES:
-            raise ValueError(f'Poziom {i}: nieprawidłowy typ lub rozmiar.')
+        if level.get('mode') not in ('random', 'custom'):
+            raise ValueError(f'Poziom {i}: nieprawidłowy typ mapy.')
+        try:
+            validate_size(level.get('size'))
+        except ValueError as error:
+            raise ValueError(f'Poziom {i}: {error}') from error
         if type(level.get('required')) is not int or not 1 <= level['required'] <= 1000000:
             raise ValueError(f'Poziom {i}: podaj liczbę zaliczeń 1–1 000 000.')
         if level['mode'] == 'custom':

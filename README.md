@@ -3,6 +3,19 @@
 **robotek-2** to wariant z wyborem terenów generatora, modelami osobnymi dla
 gałęzi Git i małą, stałą karą za kolizje −0,01. Nie ma kary za stanie w miejscu.
 
+Mapy poziomów mogą mieć dowolny nieparzysty rozmiar **od 5×5 do 255×255**.
+Rozmiar wybierz lub wpisz w projektancie (Enter albo przejście do innego pola
+zatwierdza zmianę). Generator obsługuje również prostokątne mapy: oba wymiary
+muszą być nieparzyste i mieścić się w przedziale 5–255.
+
+Podgląd 2D automatycznie zmniejsza pola, aby mapa zmieściła się obok kamery
+i panelu walidacji na ekranie. Fizyka i kamera 3D nadal używają metrów.
+Na dużych mapach boty mają powiększone znaczniki, a kliknięcia i łapka
+uwzględniają skalę. Teren jest zapamiętanym tłem; przy małych polach używany
+jest raster bez drobnych napisów i siatki. Projektant również skaluje rysunek.
+Automatyczny dobór rozmiaru bez planu rośnie co 2 aż do 255×255.
+Walidacja ma osobny, stały rozmiar 11×11 dla porównywalności wyników.
+
 Python 3.10+, Tkinter, NumPy i PyTorch.
 
 ```powershell
@@ -39,8 +52,8 @@ Testy uruchamiaj z katalogu projektu jako pakiet `tests`, np.
   ścieżek w `tests/test_paths.py` oraz poprawiono odwołania w dokumentacji.
 
 Weryfikacja po przeniesieniu ścieżek: 51 testów ścieżek, kolizji, podglądu,
-walidacji i batcha przeszło. Po kolejnych zmianach generatora i uporządkowaniu
-kar pełny zestaw zawiera **125 testów — wszystkie przechodzą**.
+walidacji i batcha przeszło. Po kolejnych zmianach generatora, kar i rozmiarów
+map pełny zestaw zawiera **130 testów — wszystkie przechodzą**.
 
 Po utworzeniu i przełączeniu nowego brancha zamknij poprzednią sesję aplikacji
 i uruchom ją ponownie. Przed treningiem możesz sprawdzić wybrane ścieżki:
@@ -370,7 +383,7 @@ z zapisem. Między próbami nie ma pauzy na wygraną/przegraną;
 uczenie i zapis nadal wymagają czasu.
 
 Mapy zaczynają od 5×5. Po 20/20 wygranych na bieżącym poziomie następuje
-awans: 7×7, 9×9, 11×11, 13×13, 15×15. Do tego liczymy 20 kolejnych grup na bieżącym poziomie: po jednym wyniku
+awans: 7×7, 9×9, 11×11, 13×13, 15×15 i dalej co 2 do 255×255. Do tego liczymy 20 kolejnych grup na bieżącym poziomie: po jednym wyniku
 wybranego robota. Po przejściu ze starego licznika indywidualnych robotów
 okno awansu jest zerowane, ale rozmiar mapy i wyuczone wagi pozostają. Po awansie okno wyników poziomu się
 zeruje. Wznowienie przywraca poziom i jego ostatnie wyniki.
@@ -429,7 +442,7 @@ ruch po całych polach i liczniki zagrożeń oparte na liczbie ruchów.
 
 ## Projektant map i plan poziomów
 
-Przycisk **Projektant poziomów** otwiera edytor planu treningowego. Początkowy plan ma 10 poziomów; można dodawać i usuwać kolejne. Wybierz poziom na liście, ustaw mapę **Losowa** lub **Moja**, rozmiar **5×5, 7×7, 9×9 lub 11×11** oraz liczbę zaliczeń z rzędu.
+Przycisk **Projektant poziomów** otwiera edytor planu treningowego. Początkowy plan ma 10 poziomów; można dodawać i usuwać kolejne. Wybierz poziom na liście, ustaw mapę **Losowa** lub **Moja**, dowolny nieparzysty rozmiar **od 5×5 do 255×255** oraz liczbę zaliczeń z rzędu.
 
 Dla mapy własnej wybierz teren z palety i maluj kliknięciem lub przeciągnięciem. START i END przenoszą się na wskazane pole. Zmiana rozmiaru czyści rysunek po potwierdzeniu. Zapis wymaga dokładnie jednego START i END oraz połączenia między nimi bez ścian; nie gwarantuje przeżycia na wodzie lub ogniu.
 

@@ -6,6 +6,7 @@ from tkinter import messagebox, ttk
 from curriculum import SIZES, blank_map, save_plan, validate_plan, validate_fields, DEFAULT_FIELDS
 from world import Terrain
 from player import validate_movement
+from maps import validate_size
 
 
 DIRECTIONS = {'Losowy': 'random', 'Prawo →': 'right', 'Lewo ←': 'left', 'Góra ↑': 'up', 'Dół ↓': 'down'}
@@ -48,9 +49,11 @@ class MapDesigner(tk.Toplevel):
             ttk.Radiobutton(controls, text=label, variable=self.mode, value=value,
                             command=self.draw).grid(row=0, column=column)
         ttk.Label(controls, text='Rozmiar:').grid(row=1, column=0)
-        menu = ttk.Combobox(controls, textvariable=self.size, values=SIZES, state='readonly', width=6)
+        menu = ttk.Combobox(controls, textvariable=self.size, values=SIZES, width=6)
         menu.grid(row=1, column=1)
         menu.bind('<<ComboboxSelected>>', self.resize_map)
+        menu.bind('<Return>', self.resize_map)
+        menu.bind('<FocusOut>', self.resize_map)
         ttk.Label(controls, text='Pola losowe · wymagane S E #').grid(row=1, column=2)
         ttk.Entry(controls, textvariable=self.pola, width=20).grid(row=1, column=3)
         ttk.Label(controls, text='Zaliczenia z rzędu:').grid(row=2, column=0)
@@ -93,6 +96,8 @@ class MapDesigner(tk.Toplevel):
         self.levels.selection_set(self.index)
 
     def commit(self):
+        if not self.resize_map():
+            return False
         try:
             required = int(self.required.get())
             if not 1 <= required <= 1000000:
@@ -154,14 +159,20 @@ class MapDesigner(tk.Toplevel):
 
     def resize_map(self, event=None):
         level = self.plan[self.index]
-        size = int(self.size.get())
+        try:
+            size = validate_size(int(self.size.get()))
+        except ValueError as error:
+            messagebox.showerror('Rozmiar mapy', str(error), parent=self)
+            self.size.set(str(level['size']))
+            return False
         if size == level['size']:
-            return
+            return True
         if not messagebox.askyesno('Zmiana rozmiaru', 'Zmienić rozmiar i wyczyścić rysunek tego poziomu?', parent=self):
             self.size.set(str(level['size']))
-            return
+            return False
         level.update(size=size, rows=blank_map(size))
         self.draw()
+        return True
 
     def paint(self, event):
         if self.mode.get() != 'custom':
@@ -186,6 +197,17 @@ class MapDesigner(tk.Toplevel):
             return
         level = self.plan[self.index]
         cell = 440 / level['size']
+        if cell < 12:
+            from map_view import terrain_ppm
+            self.map_image = tk.PhotoImage(data=terrain_ppm(level['rows'], cell,
+                {terrain.value: color for terrain, (color, _) in self.colors.items()}), format='PPM')
+            self.canvas.create_image(0, 0, image=self.map_image, anchor='nw')
+            for y, row in enumerate(level['rows']):
+                for x, tile in enumerate(row):
+                    if tile in 'SE':
+                        self.canvas.create_text((x+.5)*cell, (y+.5)*cell, text=tile,
+                                                fill='white', font=('Segoe UI', 9, 'bold'))
+            return
         for y, row in enumerate(level['rows']):
             for x, tile in enumerate(row):
                 self.canvas.create_rectangle(x*cell, y*cell, (x+1)*cell, (y+1)*cell,
