@@ -13,6 +13,7 @@ START_HEADINGS = {'right': 0., 'left': 180., 'up': 270., 'down': 90.}
 NEW_TILE_REWARD = 0.2
 EXPLORATION_BUDGET = 5.0
 COLLISION_COST = 0.01
+TURN_COST = 0.01
 
 
 class Action(IntEnum):
@@ -32,10 +33,14 @@ class StepResult:
 
 
 class Episode:
-    def __init__(self, rows=None, max_time=200.0, move_distance=MOVE_DISTANCE, turn_degrees=TURN_DEGREES, start_direction='right', start_seed=None):
+    def __init__(self, rows=None, max_time=200.0, move_distance=MOVE_DISTANCE, turn_degrees=TURN_DEGREES, start_direction='right', start_seed=None,
+                 collision_penalty=True, turn_penalty=False):
         if not isfinite(max_time) or max_time <= 0:
             raise ValueError('Limit czasu musi być dodatni i skończony')
         validate_movement(move_distance, turn_degrees)
+        if type(collision_penalty) is not bool or type(turn_penalty) is not bool:
+            raise ValueError('Przełączniki kar muszą mieć wartość true albo false.')
+        self.collision_penalty, self.turn_penalty = collision_penalty, turn_penalty
         if start_direction not in (*START_HEADINGS, 'random'):
             raise ValueError('Nieprawidłowy kierunek startowy robota')
         self.start_direction = start_direction
@@ -102,7 +107,7 @@ class Episode:
             x, y, blocked, parts, duration = p.movement_plan(action is Action.BACKWARD)
         else:
             duration, blocked = p.turn_duration(), False
-        moved, collision, new_tile = False, False, False
+        moved, collision, new_tile, turned = False, False, False, False
         self.steps += 1
         if old_time + duration > self.max_time + 1e-9:
             p.elapsed_time = self.max_time
@@ -123,6 +128,7 @@ class Episode:
                     self.visited.add(p.cell)
             else:
                 p.heading = (p.heading + (p.turn_degrees if action is Action.RIGHT else -p.turn_degrees)) % 360
+                turned = True
             if p.elapsed_time >= self.max_time - 1e-9 and not (p.won or not p.alive):
                 self.timed_out = True
         if collision:
@@ -138,7 +144,8 @@ class Episode:
             'death': -3. if not p.alive else 0.,
             'timeout': -1.5 if self.timed_out else 0.,
             'new_tile': exploration,
-            'collision': -COLLISION_COST if collision else 0.,
+            'collision': -COLLISION_COST if collision and self.collision_penalty else 0.,
+            'turn': -TURN_COST if turned and self.turn_penalty else 0.,
         }
         for name, value in self.reward_parts.items():
             self.reward_totals[name] = self.reward_totals.get(name, 0.) + value

@@ -1,7 +1,21 @@
 # robotek-2 — robot 20 cm, ciągły ruch i kamera 3D
 
 **robotek-2** to wariant z wyborem terenów generatora, modelami osobnymi dla
-gałęzi Git i małą, stałą karą za kolizje −0,01. Nie ma kary za stanie w miejscu.
+gałęzi Git i przełączanymi karami za kolizje oraz obroty. Nie ma kary za stanie w miejscu.
+
+W **Projektancie poziomów** są osobne przełączniki **Kara za kolizję −0,01**
+i **Kara za obrót −0,01**, zapisywane dla każdego poziomu jako
+`collision_penalty` i `turn_penalty` w `config/levels.json`.
+Domyślnie kara za kolizję jest włączona, a za obrót wyłączona; te same wartości
+dostają starsze plany bez tych pól. Włączona kara za obrót dotyczy każdej
+wykonanej akcji lewo/prawo, niezależnie od kąta. Niewykonana akcja po
+przekroczeniu limitu czasu nie nalicza tych kar.
+
+Przełączniki działają w podglądzie poziomu, treningu i walidacji. Zapis modelu
+zachowuje je w konfiguracji epizodu, a podsumowanie walidacji w JSONL zapisuje
+użyte ustawienia. Wyłączenie dodatkowych kar zachowuje koszt czasu akcji,
+fizyczne blokowanie ruchu i formułę wyniku punktowego. Zmiana ustawień planu
+zaczyna poziom 1 zgodnie z dotychczasową zasadą, zachowując wagi sieci.
 
 Mapy poziomów mogą mieć dowolny nieparzysty rozmiar **od 5×5 do 255×255**.
 Rozmiar wybierz lub wpisz w projektancie (Enter albo przejście do innego pola
@@ -53,7 +67,7 @@ Testy uruchamiaj z katalogu projektu jako pakiet `tests`, np.
 
 Weryfikacja po przeniesieniu ścieżek: 51 testów ścieżek, kolizji, podglądu,
 walidacji i batcha przeszło. Po kolejnych zmianach generatora, kar i rozmiarów
-map pełny zestaw zawiera **130 testów — wszystkie przechodzą**.
+map, przełączników kar i kolejności poziomów pełny zestaw zawiera **138 testów — wszystkie przechodzą**.
 
 Po utworzeniu i przełączeniu nowego brancha zamknij poprzednią sesję aplikacji
 i uruchom ją ponownie. Przed treningiem możesz sprawdzić wybrane ścieżki:
@@ -69,6 +83,14 @@ pierwszy trening utworzy nową sieć; zapis w `models/main/` pozostanie osobny.
 Nie kopiuj modelu z poprzedniej gałęzi, jeśli celem jest eksperyment od zera.
 
 ## Trenuj i oglądaj
+
+W projektancie **Duplikuj poziom** kopiuje cały wybrany poziom, wraz z mapą,
+paletą, ustawieniami ruchu, karami i zmianami z formularza, na koniec listy.
+Kopia jest niezależna od oryginału i zachowuje tę samą nazwę.
+Przyciski **↑ W górę / ↓ W dół** zmieniają kolejność, zachowując zaznaczenie
+przenoszonego poziomu. **Zapisz plan** zapisuje kopie i nową kolejność na dysku.
+Zmiana kolejności planu zaczyna poziom 1 przy następnym treningu, zachowując
+wagi sieci, zgodnie z dotychczasową zasadą zmiany planu.
 
 ### Pola dostępne dla losowych map
 
@@ -169,8 +191,9 @@ z rozmieszczenia zagrożeń. Wprowadzono wybór palety opisany w sekcji
 ## Dotychczasowy wariant treningu
 
 Obecnie każda wykonana próba ruchu zablokowana przez ścianę lub granicę mapy
-daje małą, stałą karę **−0,01** (`COLLISION_COST` w `episode.py`). Kara nie rośnie
-z serią kolizji. Obrót i udany ruch, także cofanie, nie dostają tej kary.
+daje przy włączonym przełączniku małą, stałą karę **−0,01** (`COLLISION_COST` w `episode.py`). Kara nie rośnie
+z serią kolizji. Obrót i udany ruch, także cofanie, nie dostają kary za kolizję.
+Osobny przełącznik może naliczać −0,01 za każdy wykonany obrót (`TURN_COST`).
 Akcja niewykonana z powodu przekroczenia limitu czasu nie nalicza kolizji.
 Koszt czasu nalicza się osobno. Kara wpływa na nagrodę do uczenia, a punktowy
 wynik oceny zachowuje dotychczasową formułę.
@@ -215,7 +238,7 @@ Kąt 0° oznacza prawo, 90° dół; startowy kąt wynosi 0°.
 Po obrocie ruch odbywa się po rzeczywistym kierunku, bez przyciągania do siatki.
 Kolizja obejmuje całą tarczę i całą drogę jej środka, również przy narożnikach.
 Dotknięcie styczne jest dozwolone; nakładanie na ścianę lub wyjście poza mapę
-blokuje cały krok, nalicza jego czas oraz stałą karę −0,01 za kolizję.
+blokuje cały krok, nalicza jego czas oraz — jeśli włączona — karę −0,01 za kolizję.
 Kolizje i ich serie są nadal liczone; udany ruch (także cofnięcie) zeruje serię,
 a obrót jej nie zeruje. Robot nie ślizga się po ścianie.
 Obrót koła nie zmienia obrysu i nie powoduje kolizji.
@@ -251,13 +274,14 @@ Wygrana wymaga przeżycia ruchu. Obrót nie zwiększa tych liczników.
 Nagroda jest sumą: +10 za END, −3 za śmierć, −1.5 za limit czasu,
 −0.005 za jednostkę czasu, −0.02 za punkt obrażeń,
 +0.2 za pierwsze wejście środka na nowe pole 1×1 m (maksymalnie +5 na próbę),
-**−0.01 za kolizję**, a przy użyciu łapki −20 i zakończenie przebiegu.
+**−0.01 za kolizję i −0.01 za obrót**, jeśli odpowiednie przełączniki są włączone;
+przy użyciu łapki −20 i zakończenie przebiegu.
 Nie ma dodatkowej kary za przebywanie w polu ani powrót do niego.
 Premia nie jest wypłacana za każdy krok 10 cm. Nie ma nagrody za odległość
 od END ani premii za odkrywanie starego FOV.
 
 GUI pokazuje osobno sumę nagród treningowych i premię eksploracji.
-GUI pokazuje również skumulowaną karę za kolizje.
+GUI pokazuje również skumulowane kary za kolizje i obroty.
 Punktowy wynik oceny jest liczony osobno od nagrody treningowej.
 
 Wynik oceny: `1000*wygrana − czas − 2*obrażenia − 250*śmierć − 100*limit`.

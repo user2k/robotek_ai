@@ -29,6 +29,8 @@ class MapDesigner(tk.Toplevel):
         self.move_distance = tk.StringVar()
         self.turn_degrees = tk.StringVar()
         self.start_direction = tk.StringVar(value='Prawo →')
+        self.collision_penalty = tk.BooleanVar(value=True)
+        self.turn_penalty = tk.BooleanVar(value=False)
         left = ttk.Frame(self, padding=12)
         left.pack(side='left', fill='y')
         ttk.Label(left, text='Kolejność poziomów').pack()
@@ -39,6 +41,13 @@ class MapDesigner(tk.Toplevel):
         self.levels.configure(xscrollcommand=scroll.set)
         self.levels.bind('<<ListboxSelect>>', self.select)
         ttk.Button(left, text='Dodaj poziom', command=self.add).pack(fill='x')
+        ttk.Button(left, text='Duplikuj poziom', command=self.duplicate).pack(fill='x', pady=4)
+        order_controls = ttk.Frame(left)
+        order_controls.pack(fill='x')
+        self.move_up_button = ttk.Button(order_controls, text='↑ W górę', command=lambda: self.move_level(-1))
+        self.move_up_button.pack(side='left', fill='x', expand=True)
+        self.move_down_button = ttk.Button(order_controls, text='↓ W dół', command=lambda: self.move_level(1))
+        self.move_down_button.pack(side='left', fill='x', expand=True)
         ttk.Button(left, text='Usuń poziom', command=self.remove).pack(fill='x', pady=4)
         right = ttk.Frame(self, padding=12)
         right.pack(side='left')
@@ -70,6 +79,8 @@ class MapDesigner(tk.Toplevel):
         ttk.Combobox(controls, textvariable=self.start_direction, values=list(DIRECTIONS),
                      state='readonly', width=14).grid(row=6, column=1)
         ttk.Label(controls, text='Losowy: osobno dla każdego bota, 4 kierunki.').grid(row=6, column=2, columnspan=2)
+        ttk.Checkbutton(controls, text='Kara za kolizję −0,01', variable=self.collision_penalty).grid(row=7, column=0, columnspan=2, sticky='w')
+        ttk.Checkbutton(controls, text='Kara za obrót −0,01', variable=self.turn_penalty).grid(row=7, column=2, columnspan=2, sticky='w')
         palette = ttk.Frame(right)
         palette.pack(pady=8)
         for i, (terrain, (color, label)) in enumerate(colors.items()):
@@ -94,6 +105,9 @@ class MapDesigner(tk.Toplevel):
             kind = 'losowa' if level['mode'] == 'random' else 'moja'
             self.levels.insert('end', f"{i}. {level.get('name', f'Poziom {i}')} · {kind} {level['size']}×{level['size']} · {level['required']} razy · {level.get('max_time', 200):g} s · {level.get('move_distance', .1):g} m / {level.get('turn_degrees', 10):g}°")
         self.levels.selection_set(self.index)
+        self.levels.see(self.index)
+        self.move_up_button.configure(state='normal' if self.index > 0 else 'disabled')
+        self.move_down_button.configure(state='normal' if self.index < len(self.plan)-1 else 'disabled')
 
     def commit(self):
         if not self.resize_map():
@@ -129,7 +143,8 @@ class MapDesigner(tk.Toplevel):
             return False
         self.plan[self.index].update(mode=self.mode.get(), required=required, max_time=max_time,
                                      name=name, move_distance=distance, turn_degrees=angle,
-                                     start_direction=DIRECTIONS[self.start_direction.get()], pola=fields)
+                                     start_direction=DIRECTIONS[self.start_direction.get()], pola=fields,
+                                     collision_penalty=self.collision_penalty.get(), turn_penalty=self.turn_penalty.get())
         return True
 
     def load(self):
@@ -143,6 +158,8 @@ class MapDesigner(tk.Toplevel):
         self.turn_degrees.set(f"{level.get('turn_degrees', 10):g}")
         self.start_direction.set(next(label for label, value in DIRECTIONS.items() if value == level.get('start_direction', 'right')))
         self.pola.set(level.get('pola', DEFAULT_FIELDS))
+        self.collision_penalty.set(level.get('collision_penalty', True))
+        self.turn_penalty.set(level.get('turn_penalty', False))
         self.refresh()
         self.draw()
 
@@ -220,6 +237,21 @@ class MapDesigner(tk.Toplevel):
             self.plan.append(dict(name=f'Poziom {len(self.plan)+1}', start_direction='right', move_distance=.1, turn_degrees=10., mode='random', size=5, required=20, max_time=200.0, pola=DEFAULT_FIELDS, rows=blank_map(5)))
             self.index = len(self.plan)-1
             self.load()
+
+    def duplicate(self):
+        if not self.commit():
+            return
+        self.plan.append(deepcopy(self.plan[self.index]))
+        self.index = len(self.plan)-1
+        self.load()
+
+    def move_level(self, offset):
+        target = self.index + offset
+        if not 0 <= target < len(self.plan) or not self.commit():
+            return
+        self.plan[self.index], self.plan[target] = self.plan[target], self.plan[self.index]
+        self.index = target
+        self.load()
 
     def remove(self):
         if len(self.plan) > 1 and messagebox.askyesno('Usuń poziom', f'Usunąć poziom {self.index+1}?', parent=self):

@@ -19,6 +19,7 @@ def blank_map(size):
 
 def default_plan():
     return [dict(name=f'Poziom {i + 1}', start_direction='right', move_distance=.1, turn_degrees=10., mode='random', size=SIZES[min(i // 3, 3)], required=20, max_time=200.0, pola=DEFAULT_FIELDS,
+                 collision_penalty=True, turn_penalty=False,
                  rows=blank_map(SIZES[min(i // 3, 3)])) for i in range(10)]
 
 
@@ -43,6 +44,10 @@ def validate_plan(plan):
             raise ValueError(f'Poziom {i}: nieprawidłowy kierunek startowy.')
         level.setdefault('move_distance', .1)
         level.setdefault('turn_degrees', 10.)
+        for key, default in (('collision_penalty', True), ('turn_penalty', False)):
+            level.setdefault(key, default)
+            if type(level[key]) is not bool:
+                raise ValueError(f'Poziom {i}: {key} musi mieć wartość true albo false.')
         validate_movement(level['move_distance'], level['turn_degrees'])
         level.setdefault('max_time', 200.0)
         limit = level['max_time']
@@ -112,7 +117,8 @@ def prepare_curriculum(previous, plan, start_level=None):
 
 def level_options(level):
     return dict(max_time=level.get('max_time', 200.), move_distance=level.get('move_distance', .1),
-                turn_degrees=level.get('turn_degrees', 10.), start_direction=level.get('start_direction', 'right'))
+                turn_degrees=level.get('turn_degrees', 10.), start_direction=level.get('start_direction', 'right'),
+                collision_penalty=level.get('collision_penalty', True), turn_penalty=level.get('turn_penalty', False))
 
 
 def level_rows(state, seed):

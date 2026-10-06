@@ -573,7 +573,8 @@ class GameApp:
         self.episode = episode
         self.world, self.player = episode.world, episode.player
         self.current_rows = list(episode.rows)
-        self.current_options = dict(max_time=episode.max_time, move_distance=episode.move_distance, turn_degrees=episode.turn_degrees, start_direction=episode.start_direction)
+        self.current_options = dict(max_time=episode.max_time, move_distance=episode.move_distance, turn_degrees=episode.turn_degrees, start_direction=episode.start_direction,
+                                    collision_penalty=episode.collision_penalty, turn_penalty=episode.turn_penalty)
         self.current_level_name = metadata.get("level_name", "")
         self.map_seed = metadata["map_seed"]
         self.fit_map()
@@ -876,6 +877,7 @@ class GameApp:
         self.status.configure(text=f"Czas: {p.elapsed_time:.2f}/{self.episode.max_time:g} | Obrażenia: {p.damage:.1f} | "
                               f"Wynik: {self.episode.score:.1f} | {hazard}\n"
                               f"Nagrody: {self.episode.total_reward:+.2f} | Eksploracja: {self.episode.reward_totals.get('new_tile', 0):+.2f} | "
-                              f"Kary za kolizje: {self.episode.reward_totals.get('collision', 0):+.2f}\n{self.message}\n"
+                              f"Kary za kolizje: {self.episode.reward_totals.get('collision', 0):+.2f} | "
+                              f"Kary za obrót: {self.episode.reward_totals.get('turn', 0):+.2f}\n{self.message}\n"
                               f"Pozycja: ({p.x:.2f}, {p.y:.2f}) m | Kierunek: {p.heading:g}° | "
                               f"Odwiedzone pola: {len(self.episode.visited)} | Kolizje: {self.episode.collisions}")

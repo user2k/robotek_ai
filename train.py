@@ -107,7 +107,7 @@ def run_validation(agent, model_path=DEFAULT_MODEL, stop=None, episode_options=N
         agent.hidden, agent.previous_action = hidden, previous
         agent.random.setstate(rng)
     result.update(episodes=agent.episodes, kind=validation_kind,
-                  timestamp=datetime.now().isoformat(timespec='seconds'), pola=pola)
+                  timestamp=datetime.now().isoformat(timespec='seconds'), pola=pola, episode_options=dict(options))
     path = Path(model_path).with_name(Path(model_path).stem + '.validation.csv')
     path.parent.mkdir(parents=True, exist_ok=True)
     fields = ['timestamp', 'session', 'episodes', 'updates', 'rollouts', 'checkpoint',
@@ -122,7 +122,7 @@ def run_validation(agent, model_path=DEFAULT_MODEL, stop=None, episode_options=N
             writer.writerow(dict(timestamp=datetime.now().isoformat(timespec='seconds'), session=session,
                 episodes=agent.episodes, updates=agent.updates, rollouts=agent.rollouts,
                 checkpoint=str(checkpoint_path), map_index=index, width=11, height=11, epsilon=0.,
-                **options, **metrics, maps=result['maps'], wins=result['wins'], success_rate=result['success_rate']))
+                **{k: v for k, v in options.items() if k in fields}, **metrics, maps=result['maps'], wins=result['wins'], success_rate=result['success_rate']))
     # Jeden trwały wpis na ukończoną walidację; nie zapisujemy przerwanych ocen.
     summary_path = Path(model_path).with_name(Path(model_path).stem + '.validation.jsonl')
     with summary_path.open('a', encoding='utf-8') as file:
